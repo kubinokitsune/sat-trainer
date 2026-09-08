@@ -49,9 +49,13 @@ Works in Chrome, Edge, Firefox and Safari on desktop.
 
 ## Screenshots
 
-> Add your own after first run — `docs/` is a good place for them.
-> The dashboard, a Reading and Writing question, a Math question with the
-> calculator open, and the analytics page make a good set.
+![The dashboard](docs/dashboard.png)
+
+![Progress and analytics](docs/analytics.png)
+
+*No screenshots of the question view are included, because those would reproduce
+College Board question content. Run it yourself to see the Bluebook-style
+interface.*
 
 ---
 

@@ -1129,6 +1129,7 @@ function boot() {
       'Continue anyway</button></div>');
     return;
   }
+  if (location.hash === '#progress') { showProgress(); return; }
   let seen = null;
   try { seen = localStorage.getItem('sat_seen_intro'); } catch (e) { seen = '1'; }
   if (!seen && !Store.state().attempts.length) showIntro();
