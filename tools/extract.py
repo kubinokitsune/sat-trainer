@@ -562,6 +562,47 @@ def discover(args):
     return found
 
 
+def prune_images():
+    """Delete images in data/img that no generated bank refers to.
+
+    Re-running over a different export leaves the old renders behind, and a
+    cloud-synced folder can add conflict copies of its own, so sweep both.
+    """
+    if not os.path.isdir(IMG):
+        return
+    referenced = set()
+    for name, var in (("english.js", "SAT_ENGLISH"), ("math.js", "SAT_MATH")):
+        path = os.path.join(DATA, name)
+        if not os.path.exists(path):
+            continue
+        try:
+            raw = open(path, encoding="utf-8").read()
+            for q in json.loads(raw[raw.index("=") + 1:-1]):
+                for key in ("stemImgs", "ratImgs", "passageImgs"):
+                    referenced.update(os.path.basename(p) for p in q.get(key, []))
+                for lst in q.get("choiceImgs", {}).values():
+                    referenced.update(os.path.basename(p) for p in lst)
+        except Exception as exc:
+            print("  ! could not read %s (%s) - skipping cleanup" % (name, exc))
+            return
+    if not referenced:
+        return
+    freed = removed = 0
+    for f in os.listdir(IMG):
+        if f in referenced:
+            continue
+        p = os.path.join(IMG, f)
+        try:
+            freed += os.path.getsize(p)
+            os.remove(p)
+            removed += 1
+        except OSError:
+            pass
+    if removed:
+        print("Cleaned up %d unused image(s), freeing %.1f MB"
+              % (removed, freed / 1e6))
+
+
 HELP = """
 No question-bank PDFs found.
 
@@ -607,6 +648,8 @@ if __name__ == "__main__":
               % (label, len(qs), out, len(probs)))
         for p in probs[:10]:
             print("   ", p)
+
+    prune_images()
 
     if "math" in wanted:
         # a few older Math questions state their answer only in the rationale
