@@ -4,6 +4,44 @@ All notable changes to this project are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] — 2026-09-08
+
+The theme of this release is closing the loop: the app now brings back what
+you got wrong, and tells you where your time is going.
+
+### Added
+
+- **Spaced repetition on your mistakes.** Miss a question and it is scheduled
+  to come back: 10 minutes, then 1, 3, 7 and 21 days. Get it right and it moves
+  up a step; miss it again and it drops to the front. Survive the whole ladder
+  and it is marked fixed and retired.
+
+  This closes a real hole. The picker prefers questions you have never seen,
+  and with banks of 1,845 and 1,916 there are always unseen ones — so before
+  this, **a question you got wrong would essentially never be shown to you
+  again**. Roughly a third of an adaptive run is now spent back on things you
+  missed, each marked with a "🔁 Review" tag so you know why it reappeared.
+- **Mistake bank**, on the Progress & analytics tab. Every question you have
+  missed and not yet fixed, filterable by section, skill, and whether it is due.
+  Expand any row for the full question, the correct answer and the official
+  explanation. "Practise these" turns the current filter into a session.
+- **Pacing.** Median think time per question against the pace the real test
+  allows (71s for Reading and Writing, 95s for Math), broken down by skill and
+  labelled: *On pace*, *Rushing it*, *Slow but solid*, or *Biggest win here* for
+  a skill that is both slow and inaccurate. Every attempt has recorded its
+  timing since 1.0 — until now nothing read it.
+- A review prompt on the dashboard when questions are due, and three badges for
+  clearing them.
+- The Progress tab now states what it is drawn from: how many questions you have
+  answered, out of how large a bank.
+
+### Changed
+
+- A session follows each question's own section, so a review mixing Reading and
+  Writing with Math lays out correctly and offers the calculator only on Math.
+- Timings under a second or over ten minutes are excluded from pacing, and it
+  reports medians, so one walked-away tab cannot skew the numbers.
+
 ## [1.1.0] — 2026-09-08
 
 ### Fixed

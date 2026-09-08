@@ -22,6 +22,7 @@ No install. No server. No account. No data leaves your computer.
 - [Setup](#setup)
 - [How the adaptive engine works](#how-the-adaptive-engine-works)
 - [The four practice modes](#the-four-practice-modes)
+- [The review loop](#the-review-loop)
 - [Keeping your progress safe](#keeping-your-progress-safe)
 - [Progress tracking](#progress-tracking)
 - [Where the questions come from](#where-the-questions-come-from)
@@ -41,7 +42,9 @@ No install. No server. No account. No data leaves your computer.
 | **Real test interface** | Two-pane Reading and Writing layout, Mark for Review, ABC answer eliminator, highlighting, question navigator, hideable timer — modelled on Bluebook. |
 | **Full practice test** | All four modules, 98 questions, the 10-minute break, and a second module whose difficulty is chosen by your first-module score, like the real digital SAT. Ends with an estimated 1600-scale score. |
 | **Math tools** | The Desmos graphing calculator and the official SAT reference sheet, available exactly where the real test gives them to you. |
-| **Gamified** | XP with a combo multiplier, levels, a daily goal, a day streak, and 33 badges. |
+| **Brings back your mistakes** | Miss a question and it returns on a spacing ladder — 10 minutes, then 1, 3, 7, 21 days — until you can get it right. |
+| **Pacing** | Median think time per question against real test pace, per skill, so you can see where the clock is going. |
+| **Gamified** | XP with a combo multiplier, levels, a daily goal, a day streak, and 36 badges. |
 | **Analytics** | Accuracy over time, per-domain mastery, and explicit "improving" and "needs attention" lists computed per skill. |
 | **Custom drills** | Pick individual skills, a difficulty, a question count, and optionally a clock sized to that count at real test pace. |
 | **Save files** | Progress is mirrored to a file you own, and restored automatically on launch — not trapped in browser storage. |
@@ -56,6 +59,8 @@ Works in Chrome, Edge, Firefox and Safari on desktop.
 ![The dashboard](docs/dashboard.png)
 
 ![Progress and analytics](docs/analytics.png)
+
+![Pacing and the mistake bank](docs/study-loop.png)
 
 *No screenshots of the question view are included, because those would reproduce
 College Board question content. Run it yourself to see the Bluebook-style
@@ -157,6 +162,57 @@ topic tree that shows how many questions each one holds. Set a difficulty, choos
 how many questions, and optionally start a clock. The suggested time is that many
 questions at real test pace (71s each for Reading and Writing, 95s for Math), and
 you can drag it anywhere between half and double that.
+
+---
+
+## The review loop
+
+Practice only raises a score if the questions you got wrong come back. They do.
+
+Miss a question and it enters a spacing ladder:
+
+```
+        miss                 get it right at each step
+         │        10 min  →  1 day  →  3 days  →  7 days  →  21 days  →  fixed
+         └──────────────────────────── miss again ───────────────────────────┘
+```
+
+The first step is only ten minutes, so a miss reappears in the same sitting,
+which is where it actually sticks. Get it right and it moves up; miss it again
+and it drops back to the front with its miss count going up. Survive the whole
+ladder and it is retired as **fixed**.
+
+About a third of an adaptive practice run is spent on questions that are due,
+each marked **🔁 Review** so you know why it came back. The dashboard tells you
+when something is waiting.
+
+> This closed a real hole. The picker prefers questions you have never seen, and
+> with banks of ~1,800 questions per section there are always unseen ones — so
+> before this, a question you got wrong would essentially never be shown to you
+> again.
+
+### The mistake bank
+
+On **Progress & analytics** you get every question you have missed and not yet
+fixed. Filter by section, by skill, or to just what is due; expand any row for
+the full question, the correct answer and the official explanation; or hit
+**Practise these** to turn the current filter into a session.
+
+### Pacing
+
+The same page reports your median think time per question against the pace the
+real test allows — 71s for Reading and Writing, 95s for Math — and breaks it
+down by skill:
+
+| Verdict | Meaning |
+|---|---|
+| **On pace** | At or under time, and accurate |
+| **Rushing it** | Fast, but missing them |
+| **Slow but solid** | Over time, but you are getting them right |
+| **Biggest win here** | Slow *and* inaccurate — start here |
+
+Timings under a second or over ten minutes are dropped, and it reports medians,
+so one tab left open overnight cannot skew it.
 
 ---
 

@@ -21,6 +21,8 @@ const Store = (() => {
     days: {},
     badges: {},
     tests: [],
+    review: {},            // id -> {box,due,miss,sub,last} for questions you got wrong
+    fixed: 0,              // questions carried all the way through review
     cfg: { up: 3, down: 2, goal: 20, showTimerPractice: false }
   });
 
@@ -34,6 +36,8 @@ const Store = (() => {
       s.cfg = Object.assign(defaults().cfg, s.cfg || {});
       s.level = Object.assign(defaults().level, s.level || {});
       s.run = Object.assign(defaults().run, s.run || {});
+      if (!s.review || typeof s.review !== 'object') s.review = {};
+      s.fixed = s.fixed || 0;
     } catch (e) { s = defaults(); }
     return s;
   }
@@ -71,6 +75,8 @@ const Store = (() => {
     s.run = Object.assign(defaults().run, s.run || {});
     if (!Array.isArray(s.attempts)) s.attempts = [];
     if (!Array.isArray(s.tests)) s.tests = [];
+    if (!s.review || typeof s.review !== 'object') s.review = {};
+    s.fixed = s.fixed || 0;
     save();
     return s;
   }
@@ -108,6 +114,101 @@ const Store = (() => {
     return n;
   }
 
+  /* ── spaced repetition on the ones you missed ────────────────────
+     Getting a question wrong schedules it to come back. Each time you
+     then get it right it moves up a box and the wait grows; miss it
+     again and it drops to the front. The first step is only 10 minutes,
+     so a miss comes back inside the same sitting, which is where it
+     actually sticks; after that the gaps stretch to 1, 3, 7 and 21 days. */
+  const BOXES = [10, 60 * 24, 60 * 24 * 3, 60 * 24 * 7, 60 * 24 * 21]; // minutes
+  const MIN = 60000;
+
+  function schedule(q, subject, correct) {
+    const r = s.review[q.id];
+    if (!correct) {
+      const miss = (r ? r.miss : 0) + 1;
+      s.review[q.id] = { box: 0, due: Date.now() + BOXES[0] * MIN, miss, sub: subject, last: Date.now() };
+      return 'missed';
+    }
+    if (!r) return null;                       // right first time; nothing to track
+    const box = r.box + 1;
+    if (box >= BOXES.length) {                 // survived the whole ladder
+      delete s.review[q.id];
+      s.fixed = (s.fixed || 0) + 1;
+      return 'fixed';
+    }
+    r.box = box;
+    r.due = Date.now() + BOXES[box] * MIN;
+    r.last = Date.now();
+    return 'promoted';
+  }
+
+  /** Questions that are due to come back, soonest first. */
+  function dueReviews(subject, now) {
+    now = now || Date.now();
+    const out = [];
+    for (const id in s.review) {
+      const r = s.review[id];
+      if (subject && r.sub !== subject) continue;
+      if (r.due <= now) out.push(Object.assign({ id }, r));
+    }
+    return out.sort((a, b) => a.due - b.due);
+  }
+
+  /** Everything still in the review ladder, whether or not it is due. */
+  function openMisses(subject) {
+    const out = [];
+    for (const id in s.review) {
+      const r = s.review[id];
+      if (subject && r.sub !== subject) continue;
+      out.push(Object.assign({ id }, r));
+    }
+    return out.sort((a, b) => (b.miss - a.miss) || (a.due - b.due));
+  }
+
+  const reviewCounts = () => ({
+    open: Object.keys(s.review).length,
+    due: dueReviews(null).length,
+    fixed: s.fixed || 0
+  });
+
+  /* ── pacing ──────────────────────────────────────────────────────
+     Every attempt already records think time. Anything under a second
+     is a mis-click and anything over ten minutes means the tab was left
+     open, so both are dropped; the rest is reported as a median because
+     one distraction would wreck a mean. */
+  const PACE_MIN = 1000, PACE_MAX = 10 * 60000;
+  const usableMs = a => a.ms >= PACE_MIN && a.ms <= PACE_MAX;
+
+  function median(xs) {
+    if (!xs.length) return null;
+    const v = xs.slice().sort((a, b) => a - b);
+    const m = v.length >> 1;
+    return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+  }
+
+  function pacing(sub) {
+    const a = forSubject(sub).filter(usableMs);
+    return { n: a.length, median: median(a.map(x => x.ms)) };
+  }
+
+  /** Median seconds per question grouped by a field, with accuracy. */
+  function pacingBy(sub, field) {
+    const g = {};
+    for (const a of forSubject(sub).filter(usableMs)) {
+      const o = (g[a[field]] = g[a[field]] ||
+        { name: a[field], ms: [], n: 0, c: 0, subs: {} });
+      o.ms.push(a.ms);
+      o.n++;
+      o.c += a.c;
+      o.subs[a.s] = (o.subs[a.s] || 0) + 1;   // which section it belongs to
+    }
+    return Object.values(g).map(o => ({
+      name: o.name, n: o.n, acc: o.c / o.n, median: median(o.ms),
+      sub: Object.keys(o.subs).sort((x, y) => o.subs[y] - o.subs[x])[0]
+    })).sort((x, y) => y.median - x.median);
+  }
+
   /* ── recording an answer ─────────────────────────────────────── */
   function record(q, subject, correct, ms, opts) {
     opts = opts || {};
@@ -137,10 +238,15 @@ const Store = (() => {
       else if (r.down >= s.cfg.down) r.down = 0;
     }
 
+    const review = schedule(q, subject, correct);
+
     const after = levelInfo(s.xp).level;
     const badges = checkBadges();
     save();
-    return { gained, move, levelUp: after > before, newLevel: after, badges, combo: s.curStreak };
+    return {
+      gained, move, levelUp: after > before, newLevel: after, badges,
+      combo: s.curStreak, review
+    };
   }
 
   /* ── analytics ───────────────────────────────────────────────── */
@@ -317,6 +423,15 @@ const Store = (() => {
 
     /* ── habits ── */
     { id: 'backup', ic: '💾', name: 'Safekeeping', desc: 'Save your progress to a file', test: () => !!s.everExported },
+    { id: 'fix25', ic: '🔧', name: 'Repair Shop', desc: 'Fix 25 questions you had missed',
+      test: () => (s.fixed || 0) >= 25 },
+    { id: 'fix100', ic: '🛠️', name: 'Rebuilt', desc: 'Fix 100 questions you had missed',
+      test: () => (s.fixed || 0) >= 100 },
+    {
+      id: 'inbox0', ic: '🧹', name: 'Clean Slate',
+      desc: 'Clear every review that was due, with 20+ fixed',
+      test: () => (s.fixed || 0) >= 20 && dueReviews(null).length === 0
+    },
     {
       id: 'night', ic: '🌙', name: 'Night Owl', desc: 'Answer a question after midnight',
       test: () => s.attempts.some(a => { const h = new Date(a.t).getHours(); return h >= 0 && h < 5; })
@@ -347,6 +462,7 @@ const Store = (() => {
     load, save, state, today, DIFFS, BADGES, replace,
     levelInfo, dayStreak, record, recordTest, summary, groupStats,
     accuracyTrend, dailyCounts, difficultyMix, checkBadges, reset,
+    dueReviews, openMisses, reviewCounts, pacing, pacingBy,
     onSaveError(fn) { onSaveError = fn; },
     onChange(fn) { changeSubs.push(fn); },
     set(patch) { Object.assign(s, patch); save(); }

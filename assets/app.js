@@ -28,13 +28,17 @@ const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
 
 /* ══════════════════ data ══════════════════ */
 const BANK = { rw: [], math: [] };
+const BY_ID = new Map();          // question id -> {q, subject}
 const SUBJ = { rw: 'Reading and Writing', math: 'Math' };
 
 function prepare() {
   BANK.rw = (window.SAT_ENGLISH || []).filter(q => q.choices && Object.keys(q.choices).length === 4);
   BANK.math = (window.SAT_MATH || []);
-  for (const k in BANK) for (const q of BANK[k]) q._s = k;
+  for (const k in BANK) for (const q of BANK[k]) { q._s = k; BY_ID.set(q.id, q); }
 }
+
+/** Look a question up by id, for anything driven by stored history. */
+const qById = id => BY_ID.get(id) || null;
 
 /* ══════════════════ answer checking ══════════════════ */
 function numOf(str) {
@@ -185,12 +189,35 @@ function startAdaptive(subject, filt) {
   openSession();
 }
 
+/** A question you previously missed that is due to come back, if any. */
+function pickDueReview(subject, exclude, filt) {
+  for (const r of Store.dueReviews(subject)) {
+    if (exclude.has(r.id)) continue;
+    const q = qById(r.id);
+    if (!q) continue;                                  // bank changed under us
+    if (filt && filt.skills && filt.skills.length && !filt.skills.includes(q.skill)) continue;
+    if (filt && filt.domains && filt.domains.length && !filt.domains.includes(q.domain)) continue;
+    return q;
+  }
+  return null;
+}
+
 function nextAdaptive() {
   const lvl = Store.state().level[SES.subject];
   const exclude = new Set(SES.items.map(i => i.q.id));
-  const q = pickOne(SES.subject, DIFFS[lvl], exclude, SES.filt);
+  // Roughly a third of a practice run is spent back on things you got wrong.
+  // Without this a missed question is never served again: the picker prefers
+  // unseen questions, and with a bank this size there are always unseen ones.
+  let q = null, isReview = false;
+  if (Math.random() < 0.3) {
+    q = pickDueReview(SES.subject, exclude, SES.filt);
+    isReview = !!q;
+  }
+  if (!q) q = pickOne(SES.subject, DIFFS[lvl], exclude, SES.filt);
   if (!q) { toast('No more questions match that filter.'); return false; }
-  SES.items.push(mkItem(q, SES.subject));
+  const it = mkItem(q, SES.subject);
+  it.isReview = isReview;
+  SES.items.push(it);
   SES.idx = SES.items.length - 1;
   return true;
 }
@@ -234,6 +261,26 @@ function startDrill(subject, filt, n, difficulty, seconds) {
       (timed ? ' · ' + mmss(seconds) : '')
   };
   if (qs.length < n) toast('Only ' + qs.length + ' questions matched that selection.');
+  openSession();
+}
+
+/** Work through questions you have missed. `ids` overrides the due list. */
+function startReview(subject, ids) {
+  let qs;
+  if (ids && ids.length) {
+    qs = ids.map(qById).filter(Boolean);
+  } else {
+    qs = Store.dueReviews(subject).map(r => qById(r.id)).filter(Boolean);
+  }
+  if (!qs.length) { toast('Nothing is due for review right now.'); return; }
+  const sub = qs[0]._s;
+  SES = {
+    mode: 'drill', subject: sub, filt: {},
+    items: qs.map(q => { const it = mkItem(q, q._s); it.isReview = true; return it; }),
+    idx: 0, timed: false, practice: true, endsAt: 0,
+    title: 'Review · ' + qs.length + ' question' + (qs.length === 1 ? '' : 's') +
+      ' you missed'
+  };
   openSession();
 }
 
@@ -330,7 +377,10 @@ function cur() { return SES.items[SES.idx]; }
 
 function paintSession() {
   if (!SES) return;
-  const isMath = SES.subject === 'math';
+  // a review session can mix sections, so follow the question on screen
+  const shown = SES.items[SES.idx];
+  const subj = (shown && shown.subject) || SES.subject;
+  const isMath = subj === 'math';
   $$('.math-only').forEach(b => b.hidden = !isMath);
   $('#bbModule').textContent = SES.title;
   $('#bbTimer').classList.toggle('hidden-t', !!SES.timerHidden);
@@ -348,7 +398,7 @@ function paintSession() {
   const body = $('#bbBody'), L = $('#bbLeft'), R = $('#bbRight');
 
   // ── left pane: R&W passage only ──
-  const twoPane = SES.subject === 'rw';
+  const twoPane = subj === 'rw';
   body.classList.toggle('single', !twoPane);
   if (twoPane) {
     L.innerHTML = '<div class="psg">' + figure(q.passageImgs) +
@@ -359,6 +409,7 @@ function paintSession() {
   const practice = SES.mode === 'adaptive' || !!SES.practice;
   let h = '<div class="q-head">' +
     `<div class="q-num">${SES.idx + 1}</div>` +
+    (it.isReview ? '<span class="q-rev" title="You missed this one before">🔁 Review</span>' : '') +
     `<button class="q-mark${it.marked ? ' on' : ''}" id="qMark">` +
     `${it.marked ? '🔖' : '🏳️'} Mark for Review</button>` +
     `<button class="q-abc${it.abc ? ' on' : ''}" id="qAbc">ABC</button></div>`;
@@ -483,6 +534,9 @@ function feedbackHTML(it) {
     `<span class="pill">${esc(q.domain)}</span><span class="pill">${esc(q.skill)}</span>`;
   if (it.move === 1) h += '<span class="pill h">⬆ Difficulty up</span>';
   if (it.move === -1) h += '<span class="pill e">⬇ Difficulty eased</span>';
+  if (it.review === 'missed') h += '<span class="pill r">🔁 Back for review</span>';
+  if (it.review === 'promoted') h += '<span class="pill g">🔁 Review passed</span>';
+  if (it.review === 'fixed') h += '<span class="pill g">✔ Fixed for good</span>';
   h += '</div></div>';
   return h;
 }
@@ -543,12 +597,13 @@ function onNext() {
       if (it.ans == null || it.ans === '') return;
       stopClock();
       grade(it);
-      const r = Store.record(it.q, SES.subject, it.correct, it.ms);
-      it.checked = true; it.gained = r.gained; it.move = r.move;
+      const r = Store.record(it.q, it.subject, it.correct, it.ms);
+      it.checked = true; it.gained = r.gained; it.move = r.move; it.review = r.review;
+      if (r.review === 'fixed') toast('✔ Fixed — that one is out of your review list', 'gold');
       if (r.levelUp) toast('🎉 Level ' + r.newLevel + '!', 'gold');
       for (const b of r.badges) toast(b.ic + ' Badge unlocked: ' + b.name, 'gold');
-      if (r.move === 1) toast('Difficulty increased → ' + DIFFS[Store.state().level[SES.subject]]);
-      if (r.move === -1) toast('Difficulty eased → ' + DIFFS[Store.state().level[SES.subject]]);
+      if (r.move === 1) toast('Difficulty increased → ' + DIFFS[Store.state().level[it.subject]]);
+      if (r.move === -1) toast('Difficulty eased → ' + DIFFS[Store.state().level[it.subject]]);
       paintSession();
       refreshHome();
       return;
@@ -823,6 +878,22 @@ function refreshHome() {
   $('#bankInfo').textContent =
     `${BANK.rw.length.toLocaleString()} Reading and Writing · ${BANK.math.length.toLocaleString()} Math`;
 
+  // questions you missed and owe a second look
+  const rc = Store.reviewCounts();
+  const cta = $('#reviewCta');
+  if (cta) {
+    cta.hidden = !rc.open;
+    if (rc.open) {
+      cta.innerHTML = '<div class="rv-l"><b>🔁 ' + rc.due + ' question' +
+        (rc.due === 1 ? '' : 's') + ' ready for review</b><span>' + rc.open +
+        ' still open · ' + rc.fixed + ' fixed for good</span></div>' +
+        (rc.due ? '<button class="btn small primary" id="rvGo">Review now</button>'
+                : '<span class="rv-wait">Next one is not due yet</span>');
+      const g = $('#rvGo');
+      if (g) g.onclick = () => startReview(null);
+    }
+  }
+
   // save-file state, so an unbacked-up streak is visible without digging
   const sv = $('#saveState');
   if (sv) {
@@ -855,6 +926,211 @@ function refreshHome() {
 }
 
 /* ══════════════════ progress screen ══════════════════ */
+/* ══════════════════ pacing ══════════════════ */
+const secs = ms => ms == null ? '—' : (ms / 1000).toFixed(0) + 's';
+
+/** How long you take per question, against the pace the real test allows. */
+function pacingHTML() {
+  const rows = [];
+  for (const sub of ['rw', 'math']) {
+    const p = Store.pacing(sub);
+    if (!p.n) continue;
+    const target = PACE[sub] * 1000;
+    const diff = p.median - target;
+    rows.push({ sub, ...p, target, diff });
+  }
+  if (!rows.length) {
+    return '<div class="box full"><h3>⏱️ Pacing</h3>' +
+      '<div class="sub">How long you take per question</div>' +
+      '<p class="empty">Answer some questions and your timings show up here.</p></div>';
+  }
+
+  let h = '<div class="box full"><h3>⏱️ Pacing</h3>' +
+    '<div class="sub">Median think time per question, against the pace the real ' +
+    'test allows. Timings under a second or over ten minutes are ignored.</div>' +
+    '<div class="pace-cards">';
+  for (const r of rows) {
+    const over = r.diff > 0;
+    const pctOff = Math.round(Math.abs(r.diff) / r.target * 100);
+    h += '<div class="pace-card">' +
+      `<div class="pace-sub">${SUBJ[r.sub]}</div>` +
+      `<div class="pace-big ${over ? 'over' : 'under'}">${secs(r.median)}</div>` +
+      `<div class="pace-target">test pace ${secs(r.target)}</div>` +
+      `<div class="pace-delta ${over ? 'over' : 'under'}">` +
+      `${over ? '▲' : '▼'} ${secs(Math.abs(r.diff))} ${over ? 'slower' : 'faster'} ` +
+      `(${pctOff}%)</div>` +
+      `<div class="pace-note">${r.n.toLocaleString()} timed answers</div></div>`;
+  }
+  h += '</div>';
+
+  // Slow *and* inaccurate is where the points actually are.
+  const skills = Store.pacingBy(null, 'k').filter(g => g.n >= 5);
+  if (skills.length) {
+    // Rank by what a fix is worth: slow and wrong costs more than slow and right.
+    const worst = skills.slice()
+      .sort((a, b) => (b.median * (1 - b.acc)) - (a.median * (1 - a.acc)))
+      .slice(0, 8);
+    h += '<div class="sub" style="margin-top:18px">Where your time is going, and ' +
+      'whether it is buying you anything</div><table class="tbl pace-tbl">' +
+      '<tr><th>Skill</th><th>Median</th><th>vs pace</th><th>Accuracy</th><th>Verdict</th></tr>' +
+      worst.map(g => {
+        const target = PACE[g.sub || 'rw'] * 1000;
+        const rel = g.median / target;
+        const slow = rel > 1.15, weak = g.acc < 0.7;
+        let verdict, cls;
+        if (slow && weak) { verdict = 'Biggest win here'; cls = 'dn'; }
+        else if (slow) { verdict = 'Slow but solid'; cls = 'fl'; }
+        else if (weak) { verdict = 'Rushing it'; cls = 'dn'; }
+        else { verdict = 'On pace'; cls = 'up'; }
+        const off = Math.round((rel - 1) * 100);
+        return `<tr><td>${esc(g.name)}</td><td>${secs(g.median)}</td>` +
+          `<td class="${off > 0 ? 'over' : 'under'}">${off > 0 ? '+' : ''}${off}%</td>` +
+          `<td>${pct(g.acc)}</td><td><span class="trend ${cls}">${verdict}</span></td></tr>`;
+      }).join('') + '</table>';
+  }
+  return h + '</div>';
+}
+
+/* ══════════════════ mistake bank ══════════════════ */
+let MB_FILTER = { sub: '', skill: '', only: 'open' };
+
+function mistakeBankHTML() {
+  const c = Store.reviewCounts();
+  let list = Store.openMisses(MB_FILTER.sub || null)
+    .map(r => ({ r, q: qById(r.id) }))
+    .filter(x => x.q);
+  if (MB_FILTER.skill) list = list.filter(x => x.q.skill === MB_FILTER.skill);
+  if (MB_FILTER.only === 'due') list = list.filter(x => x.r.due <= Date.now());
+
+  const skills = Array.from(new Set(Store.openMisses(MB_FILTER.sub || null)
+    .map(x => (qById(x.id) || {}).skill).filter(Boolean))).sort();
+
+  let h = '<div class="box full mb" id="mbBox"><h3>🗂️ Mistake bank</h3>' +
+    '<div class="sub">Every question you have missed and not yet fixed. ' +
+    'Getting one right moves it further down the queue; miss it again and it ' +
+    'comes straight back.</div>';
+
+  h += '<div class="mb-stats">' +
+    `<div><b>${c.open}</b><span>still open</span></div>` +
+    `<div><b>${c.due}</b><span>due now</span></div>` +
+    `<div><b>${c.fixed}</b><span>fixed for good</span></div>` +
+    '</div>';
+
+  if (!c.open && !c.fixed) {
+    return h + '<p class="empty">Nothing here yet — miss a question and it lands ' +
+      'in this list until you can get it right.</p></div>';
+  }
+
+  h += '<div class="mb-bar">' +
+    '<select id="mbSub"><option value="">Both sections</option>' +
+    `<option value="rw"${MB_FILTER.sub === 'rw' ? ' selected' : ''}>Reading and Writing</option>` +
+    `<option value="math"${MB_FILTER.sub === 'math' ? ' selected' : ''}>Math</option></select>` +
+    '<select id="mbSkill"><option value="">All skills</option>' +
+    skills.map(k => `<option value="${esc(k)}"${MB_FILTER.skill === k ? ' selected' : ''}>` +
+      `${esc(k)}</option>`).join('') + '</select>' +
+    '<select id="mbOnly">' +
+    `<option value="open"${MB_FILTER.only === 'open' ? ' selected' : ''}>All open</option>` +
+    `<option value="due"${MB_FILTER.only === 'due' ? ' selected' : ''}>Due now</option></select>` +
+    (list.length
+      ? `<button class="btn small primary" id="mbGo">Practise these (${list.length})</button>`
+      : '') +
+    '</div>';
+
+  if (!list.length) {
+    return h + '<p class="empty">Nothing matches that filter.' +
+      (c.due ? '' : ' Everything you have missed is waiting out its review interval.') +
+      '</p></div>';
+  }
+
+  h += '<div class="mb-list">' + list.slice(0, 60).map(({ r, q }) => {
+    const due = r.due <= Date.now();
+    const when = due ? 'due now' : 'due ' + relDate(r.due);
+    return `<div class="mb-item" data-mbid="${esc(q.id)}">` +
+      '<div class="mb-row">' +
+      `<span class="mb-sub ${q._s}">${q._s === 'math' ? 'Math' : 'R&amp;W'}</span>` +
+      `<span class="mb-skill">${esc(q.skill)}</span>` +
+      `<span class="pill ${{ Easy: 'e', Medium: 'm', Hard: 'h' }[q.difficulty] || ''}">` +
+      `${esc(q.difficulty)}</span>` +
+      `<span class="mb-miss">missed ${r.miss}×</span>` +
+      `<span class="mb-due${due ? ' now' : ''}">${when}</span>` +
+      '<span class="mb-open">▸</span></div>' +
+      '<div class="mb-body" hidden></div></div>';
+  }).join('') + '</div>';
+  if (list.length > 60)
+    h += `<p class="empty">Showing the first 60 of ${list.length}.</p>`;
+  return h + '</div>';
+}
+
+function relDate(ts) {
+  const d = Math.round((ts - Date.now()) / 60000);
+  if (d < 60) return 'in ' + d + ' min';
+  if (d < 60 * 24) return 'in ' + Math.round(d / 60) + ' h';
+  return 'in ' + Math.round(d / (60 * 24)) + ' d';
+}
+
+/** Full question + official explanation, for an expanded mistake-bank row. */
+function mistakeDetailHTML(q) {
+  const isMath = q._s === 'math';
+  let h = '<div class="mb-q">';
+  if (!isMath && q.passage) h += '<div class="mb-psg">' + paras(q.passage) + '</div>';
+  if (!isMath && q.passageImgs) h += figure(q.passageImgs);
+  h += '<div class="mb-stem">' +
+    (isMath ? mathFig(q.stemImgs) : paras(q.prompt || q.stem)) + '</div>';
+  if (q.type === 'spr') {
+    h += `<div class="mb-ans">Answer: <b>${esc(q.answer)}</b></div>`;
+  } else {
+    h += '<div class="mb-choices">';
+    for (const l of ['A', 'B', 'C', 'D']) {
+      const has = isMath ? (q.choiceImgs && q.choiceImgs[l]) : (q.choices && q.choices[l]);
+      if (!has) continue;
+      h += `<div class="mb-ch${l === q.answer ? ' good' : ''}">` +
+        `<span class="ltr">${l}</span><span class="ctext">` +
+        (isMath ? imgs(q.choiceImgs[l]) : esc(q.choices[l])) + '</span></div>';
+    }
+    h += '</div>';
+  }
+  const split = q.ratImgs ? null : splitRationale(q.rationale, q.answer);
+  h += '<div class="fb-sec" style="margin-top:14px"><h5>Why the answer is ' +
+    esc(q.answer) + '</h5><div class="rat">' +
+    (q.ratImgs ? mathFig(q.ratImgs)
+      : split ? paras(split.main) : '<p>No explanation available.</p>') + '</div></div>';
+  if (split && split.notes.length) {
+    h += '<details class="fb-why"><summary>Why the other choices are wrong</summary>' +
+      '<div class="fb-notes">' + split.notes.map(n =>
+        `<div class="fb-note"><span class="ltr">${esc(n.letter)}</span>` +
+        `<p>${esc(n.text)}</p></div>`).join('') + '</div></details>';
+  }
+  return h + '</div>';
+}
+
+function wireMistakeBank() {
+  const box = $('#mbBox');
+  if (!box) return;
+  const re = () => { $('#pgWrap'); showProgress(); };
+  const sub = $('#mbSub'), sk = $('#mbSkill'), on = $('#mbOnly'), go = $('#mbGo');
+  if (sub) sub.onchange = e => { MB_FILTER.sub = e.target.value; MB_FILTER.skill = ''; re(); };
+  if (sk) sk.onchange = e => { MB_FILTER.skill = e.target.value; re(); };
+  if (on) on.onchange = e => { MB_FILTER.only = e.target.value; re(); };
+  if (go) go.onclick = () => {
+    let list = Store.openMisses(MB_FILTER.sub || null)
+      .map(r => ({ r, q: qById(r.id) })).filter(x => x.q);
+    if (MB_FILTER.skill) list = list.filter(x => x.q.skill === MB_FILTER.skill);
+    if (MB_FILTER.only === 'due') list = list.filter(x => x.r.due <= Date.now());
+    startReview(null, list.slice(0, 40).map(x => x.q.id));
+  };
+  box.addEventListener('click', e => {
+    const row = e.target.closest('.mb-row');
+    if (!row) return;
+    const item = row.parentElement;
+    const body = item.querySelector('.mb-body');
+    const q = qById(item.dataset.mbid);
+    if (!q) return;
+    if (body.hidden && !body.innerHTML) body.innerHTML = mistakeDetailHTML(q);
+    body.hidden = !body.hidden;
+    item.classList.toggle('open', !body.hidden);
+  });
+}
+
 function showProgress() {
   const s = Store.state();
   const rwT = Store.accuracyTrend('rw', 14, 10);
@@ -917,6 +1193,9 @@ function showProgress() {
     '<div class="sub">Sorted by accuracy — the top of this list is where points are hiding</div>' +
     '<div id="cSkills"></div></div>';
 
+  h += pacingHTML();
+  h += mistakeBankHTML();
+
   if (s.tests.length) {
     h += '<div class="box full"><h3>Full test history</h3><table class="tbl">' +
       '<tr><th>Date</th><th>R&amp;W raw</th><th>Math raw</th><th>R&amp;W</th><th>Math</th><th>Total</th></tr>' +
@@ -927,6 +1206,11 @@ function showProgress() {
       '</table></div>';
   }
   h += '</div>';
+
+  h += '<footer class="pg-foot">Drawn from <b>' + s.attempts.length.toLocaleString() +
+    '</b> answered questions, out of a bank of <b>' + BANK.rw.length.toLocaleString() +
+    '</b> Reading and Writing and <b>' + BANK.math.length.toLocaleString() +
+    '</b> Math.</footer>';
 
   $('#pgWrap').innerHTML = h;
   show('progress');
@@ -943,6 +1227,7 @@ function showProgress() {
   Charts.hbars($('#cSkills'), skills.slice().sort((a, b) => a.acc - b.acc)
     .map(g => ({ name: g.name, n: g.n, acc: g.acc })));
   $('#pgHome').onclick = () => show('home');
+  wireMistakeBank();
 }
 
 /* ══════════════════ badges ══════════════════ */
@@ -1357,7 +1642,7 @@ function wire() {
     const p = $('#popDirections');
     p.hidden = !p.hidden;
     if (!p.hidden) {
-      p.innerHTML = SES && SES.subject === 'math'
+      p.innerHTML = SES && SES.items[SES.idx] && SES.items[SES.idx].subject === 'math'
         ? '<b>Directions</b><p style="margin:8px 0 0">The questions in this section address a ' +
         'number of important math skills. Use of a calculator is permitted for all questions. ' +
         'Unless otherwise indicated, all variables and expressions represent real numbers, ' +
