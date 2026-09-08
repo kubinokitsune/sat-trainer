@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SAT Trainer</title>
+<link rel="stylesheet" href="assets/styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#127891;</text></svg>">
+</head>
+<body>
+
+<!-- ══════════════════════════════ LOADING ══════════════════════════════ -->
+<div id="boot" class="boot">
+  <div class="boot-card">
+    <div class="boot-logo">SAT</div>
+    <div class="boot-title">Loading question banks…</div>
+    <div class="boot-bar"><i></i></div>
+    <div class="boot-note" id="bootNote"></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════ HOME ══════════════════════════════ -->
+<main id="screen-home" class="screen">
+  <header class="hero">
+    <div class="hero-inner">
+      <div class="hero-left">
+        <div class="hero-hello">Welcome back</div>
+        <h1 id="heroName">Felipe</h1>
+        <div class="hero-sub" id="heroSub"></div>
+      </div>
+      <div class="hero-right">
+        <div class="lvl-ring" id="lvlRing">
+          <svg viewBox="0 0 120 120" aria-hidden="true">
+            <circle class="ring-bg" cx="60" cy="60" r="52"></circle>
+            <circle class="ring-fg" id="lvlArc" cx="60" cy="60" r="52"></circle>
+          </svg>
+          <div class="lvl-mid">
+            <b id="lvlNum">1</b>
+            <span>LEVEL</span>
+          </div>
+        </div>
+        <div class="xp-line"><span id="xpNow">0</span> / <span id="xpNext">100</span> XP</div>
+      </div>
+    </div>
+  </header>
+
+  <section class="strip">
+    <div class="stat"><b id="stDay">0</b><span>Day streak 🔥</span></div>
+    <div class="stat"><b id="stAns">0</b><span>Answered</span></div>
+    <div class="stat"><b id="stAcc">—</b><span>Accuracy</span></div>
+    <div class="stat"><b id="stBest">0</b><span>Best run ⚡</span></div>
+    <div class="stat"><b id="stBadge">0</b><span>Badges 🏅</span></div>
+  </section>
+
+  <section class="goal-wrap">
+    <div class="goal-head">
+      <span>Daily goal — <b id="goalDone">0</b>/<b id="goalTarget">20</b> questions</span>
+      <span id="goalPct">0%</span>
+    </div>
+    <div class="goal-bar"><i id="goalFill"></i></div>
+  </section>
+
+  <section class="cards">
+    <article class="card card-rw">
+      <div class="card-tag">Section 1</div>
+      <h2>Reading and Writing</h2>
+      <p id="rwCount">—</p>
+      <div class="card-meta">
+        <span>Level: <b id="rwLevel">Medium</b></span>
+        <span>Accuracy: <b id="rwAcc">—</b></span>
+      </div>
+      <div class="card-bar"><i id="rwBar"></i></div>
+      <div class="card-actions">
+        <button class="btn primary" data-start="rw|adaptive">Adaptive practice</button>
+        <button class="btn ghost" data-start="rw|module">Timed module · 32 min</button>
+      </div>
+    </article>
+
+    <article class="card card-math">
+      <div class="card-tag">Section 2</div>
+      <h2>Math</h2>
+      <p id="mCount">—</p>
+      <div class="card-meta">
+        <span>Level: <b id="mLevel">Medium</b></span>
+        <span>Accuracy: <b id="mAcc">—</b></span>
+      </div>
+      <div class="card-bar"><i id="mBar"></i></div>
+      <div class="card-actions">
+        <button class="btn primary" data-start="math|adaptive">Adaptive practice</button>
+        <button class="btn ghost" data-start="math|module">Timed module · 35 min</button>
+      </div>
+    </article>
+
+    <article class="card card-full">
+      <div class="card-tag">Full length</div>
+      <h2>Complete practice test</h2>
+      <p>4 modules · 98 questions · 2 h 14 m, with the adaptive second module and a 10-minute break — exactly like test day.</p>
+      <div class="card-actions">
+        <button class="btn primary" data-start="full|full">Start full test</button>
+        <button class="btn ghost" id="btnCustom">Custom drill…</button>
+      </div>
+    </article>
+  </section>
+
+  <nav class="home-nav">
+    <button class="btn ghost" id="btnProgress">📈 Progress &amp; analytics</button>
+    <button class="btn ghost" id="btnBadges">🏅 Badges</button>
+    <button class="btn ghost" id="btnSettings">⚙️ Settings</button>
+  </nav>
+
+  <section class="home-recent" id="homeRecent"></section>
+  <footer class="home-foot">Question banks: <span id="bankInfo"></span></footer>
+</main>
+
+<!-- ══════════════════════════════ SESSION (Bluebook) ══════════════════════════════ -->
+<main id="screen-test" class="screen bb">
+  <header class="bb-top">
+    <div class="bb-top-l">
+      <div class="bb-modname" id="bbModule">Section 1, Module 1: Reading and Writing</div>
+      <button class="bb-dir" id="btnDirections">Directions <span>⌄</span></button>
+    </div>
+    <div class="bb-top-c">
+      <div class="bb-timer" id="bbTimer">32:00</div>
+      <button class="bb-hide" id="btnHideTimer">Hide</button>
+    </div>
+    <div class="bb-top-r">
+      <button class="bb-tool" id="btnHighlight" title="Highlight selected text"><span>✏️</span>Annotate</button>
+      <button class="bb-tool math-only" id="btnCalc"><span>🖩</span>Calculator</button>
+      <button class="bb-tool math-only" id="btnRef"><span>📐</span>Reference</button>
+      <button class="bb-tool" id="btnQuit"><span>✕</span>Exit</button>
+    </div>
+  </header>
+  <div class="bb-rule"></div>
+
+  <div class="bb-body" id="bbBody">
+    <section class="bb-pane bb-left" id="bbLeft"></section>
+    <div class="bb-split" id="bbSplit" title="Drag to resize"></div>
+    <section class="bb-pane bb-right" id="bbRight"></section>
+  </div>
+
+  <footer class="bb-bot">
+    <div class="bb-bot-l" id="bbUser">Felipe</div>
+    <div class="bb-bot-c">
+      <button class="bb-nav-btn" id="btnNavigator">Question <b id="bbQNum">1</b> of <b id="bbQTot">27</b> <span>▲</span></button>
+    </div>
+    <div class="bb-bot-r">
+      <button class="btn small ghost" id="btnBack">Back</button>
+      <button class="btn small primary" id="btnNext">Next</button>
+    </div>
+  </footer>
+
+  <!-- floating panels -->
+  <div class="panel" id="panelCalc" hidden>
+    <div class="panel-head" data-drag="panelCalc"><span>Graphing Calculator</span><button data-close="panelCalc">✕</button></div>
+    <div class="panel-body" id="calcMount"></div>
+  </div>
+  <div class="panel wide" id="panelRef" hidden>
+    <div class="panel-head" data-drag="panelRef"><span>Reference Sheet</span><button data-close="panelRef">✕</button></div>
+    <div class="panel-body" id="refMount"></div>
+  </div>
+
+  <div class="pop" id="popNavigator" hidden></div>
+  <div class="pop dir" id="popDirections" hidden></div>
+</main>
+
+<!-- ══════════════════════════════ RESULTS ══════════════════════════════ -->
+<main id="screen-results" class="screen">
+  <div class="res-wrap" id="resWrap"></div>
+</main>
+
+<!-- ══════════════════════════════ PROGRESS ══════════════════════════════ -->
+<main id="screen-progress" class="screen">
+  <div class="pg-wrap" id="pgWrap"></div>
+</main>
+
+<!-- ══════════════════════════════ MODAL ══════════════════════════════ -->
+<div class="modal" id="modal" hidden>
+  <div class="modal-card" id="modalCard"></div>
+</div>
+
+<div class="toast-host" id="toastHost"></div>
+
+<script>
+// If anything fails before the app hides the splash, say so instead of
+// leaving "Loading question banks..." on screen forever.
+window.addEventListener('error', function (e) {
+  var boot = document.getElementById('boot');
+  if (!boot || boot.style.display === 'none') return;
+  var note = document.getElementById('bootNote');
+  if (!note) return;
+  var el = e.target;
+  // a file that failed to load, rather than a script that threw
+  if (el && (el.tagName === 'SCRIPT' || el.tagName === 'LINK')) {
+    var url = el.src || el.href || '';
+    // missing question data is the normal first-run state; app.js explains it
+    if (/data\/(english|math)\.js$/.test(url)) return;
+    note.innerHTML = '<b>Could not load ' + url.split('/').pop() + '</b><br>' +
+      'Keep the <code>assets</code> and <code>data</code> folders next to ' +
+      '<code>index.html</code>.';
+    return;
+  }
+  var src = (e.filename || '').split('/').pop();
+  note.innerHTML = '<b>Could not start.</b><br>' + String(e.message || e.type) +
+    (src ? '<br>in ' + src + ':' + e.lineno : '');
+}, true);
+</script>
+<script src="data/english.js"></script>
+<script src="data/math.js"></script>
+<script src="assets/store.js"></script>
+<script src="assets/charts.js"></script>
+<script src="assets/reference.js"></script>
+<script src="assets/app.js"></script>
+</body>
+</html>

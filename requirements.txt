@@ -1,0 +1,7 @@
+# Only needed to convert the College Board PDF exports into app data.
+# The app itself is plain HTML/CSS/JS and needs nothing installed.
+#
+#   py -3 -m pip install -r requirements.txt        (Windows)
+#   python3 -m pip install -r requirements.txt      (macOS / Linux)
+
+PyMuPDF>=1.24

@@ -1,0 +1,28 @@
+# ── Question bank content ────────────────────────────────────────────────
+# The PDFs and everything generated from them are College Board copyrighted
+# material. They stay on your machine and are never committed. Each user
+# exports their own from satsuitequestionbank.collegeboard.org.
+question-banks/*.pdf
+data/english.js
+data/math.js
+data/img/
+
+# ── Python ───────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+
+# ── Editors / OS ─────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.qodo/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Scratch ──────────────────────────────────────────────────────────────
+*.log
+tmp/
