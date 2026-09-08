@@ -211,6 +211,13 @@ Progress lives in browser `localStorage`, so it's per-browser and per-machine, a
 private windows discard it on close. If the browser blocks local storage entirely,
 the app tells you rather than losing work silently.
 
+**Stray `*-<name>.png` files keep appearing in `data/img`**
+You've put the project inside a cloud-synced folder (OneDrive, Dropbox, iCloud).
+Writing ~9,500 small files in a few minutes makes the sync client create
+conflict copies and undo deletions. The app ignores them, but they waste space
+and quota. Keep the project outside your synced folders, or exclude `data/`
+from sync.
+
 **Nothing happens when I double-click index.html**
 Right-click → *Open with* → your browser. If your browser is set to download
 `.html` files rather than open them, use that menu.
