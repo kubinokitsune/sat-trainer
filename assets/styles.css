@@ -346,3 +346,86 @@ mark.hl{background:#ffe680;padding:1px 0}
   .bb-split{display:none}
   .bb-pane{padding:18px}
 }
+
+/* ══════════════════ v2: save files, richer drill, better feedback ══════════════════ */
+
+/* ── save-file state on the dashboard ── */
+.save-state{max-width:1080px;margin:0 auto 14px;padding:0 20px;font-size:13px;color:var(--muted)}
+.save-state:empty{margin:0}
+.save-state.on{color:#0d7a4f}
+.save-state.warn{color:#8a5a00}
+.lnk{background:none;border:0;padding:0;font:inherit;color:var(--blue);font-weight:600;
+  text-decoration:underline;cursor:pointer}
+.lnk:hover{color:#0f3aa5}
+
+/* ── save box in settings ── */
+.sec-rule{display:flex;align-items:center;gap:10px;margin:20px 0 10px;color:var(--muted);
+  font-size:11.5px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.sec-rule::after{content:'';flex:1;height:1px;background:var(--line)}
+.sf-state{border:1px solid var(--line);border-radius:9px;padding:10px 12px;background:#fbfcfe}
+.sf-state.on{border-color:#a7e0c4;background:#f2fbf6}
+.sf-state b{display:block;font-size:13.5px;margin-bottom:2px}
+.sf-state span{font-size:12.5px;color:var(--muted)}
+.sf-btns{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+.warn-line{background:#fff6e5;border:1px solid #f0d59a;border-radius:8px;padding:9px 11px;
+  font-size:13.5px;color:#7a5200}
+
+/* ── custom drill: topic tree ── */
+.tp-bar{display:flex;justify-content:space-between;align-items:baseline;font-size:12px}
+.tp-tree{max-height:230px;overflow:auto;border:1px solid var(--line);border-radius:9px;
+  padding:6px 10px;background:#fff}
+.tp-dom{padding:5px 0;border-bottom:1px solid #f0f2f6}
+.tp-dom:last-child{border-bottom:0}
+.tp-tree .tp-head{display:flex;align-items:center;gap:8px;font-size:13.5px;
+  cursor:pointer;margin:0;font-weight:600}
+.tp-tree .tp-head b{flex:1;font-weight:700}
+.tp-skills{padding:2px 0 2px 24px}
+.tp-tree .tp-skill{display:flex;align-items:center;gap:8px;font-size:12.5px;
+  color:#48505f;padding:2px 0;cursor:pointer;margin:0;font-weight:500}
+.tp-tree .tp-skill span:first-of-type{flex:1}
+.tp-n{color:var(--muted);font-size:11.5px;font-variant-numeric:tabular-nums}
+.note.warn{color:#8a5a00}
+.field label.chk{display:flex;align-items:center;gap:8px;font-size:13.5px;
+  font-weight:500;cursor:pointer;margin:0}
+.rng{width:100%;accent-color:var(--blue)}
+
+/* ── math figures: enlarge affordance ── */
+.mathfig{position:relative}
+.mathfig .figzoom{position:absolute;top:2px;right:2px;opacity:0;transition:.15s;
+  background:rgba(255,255,255,.94);border:1px solid var(--line);border-radius:7px;
+  padding:3px 9px;font-size:11.5px;font-weight:600;cursor:pointer;color:var(--ink)}
+.mathfig:hover .figzoom,.mathfig .figzoom:focus{opacity:1}
+
+/* ── feedback panel ── */
+.fb-top{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.fb-verdict{font-size:17px;font-weight:800}
+.fb-ans{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.fb-chip{border:1px solid var(--line);border-radius:9px;padding:6px 12px;background:#fff;
+  min-width:104px}
+.fb-chip i{display:block;font-style:normal;font-size:10.5px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted);font-weight:700}
+.fb-chip b{font-size:16px}
+.fb-chip.good{border-color:#a7e0c4;background:#f2fbf6}
+.fb-chip.good b{color:#0d7a4f}
+.fb-chip.bad{border-color:#f2b8b8;background:#fdf4f4}
+.fb-chip.bad b{color:#b42318}
+.fb-sec h5{font-size:12px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);
+  margin:0 0 6px;font-weight:700}
+.fb-why{margin-top:14px;border-top:1px solid var(--line);padding-top:10px}
+.fb-why summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--blue);
+  list-style:none;user-select:none}
+.fb-why summary::-webkit-details-marker{display:none}
+.fb-why summary::before{content:'▸ ';display:inline-block;transition:.15s}
+.fb-why[open] summary::before{transform:rotate(90deg)}
+.fb-notes{margin-top:10px;display:flex;flex-direction:column;gap:9px}
+.fb-note{display:flex;gap:9px;align-items:flex-start}
+.fb-note .ltr{flex:0 0 auto;width:21px;height:21px;border-radius:50%;border:1.5px solid var(--line);
+  display:grid;place-content:center;font-size:11.5px;font-weight:800;color:var(--muted)}
+.fb-note p{margin:0;font-size:13.5px;line-height:1.6;color:#48505f}
+.fb-note.mine .ltr{border-color:#e8908a;color:#b42318;background:#fdf4f4}
+.fb-note.mine p{color:var(--ink)}
+.modal-card.wide-modal{max-width:640px}
+
+/* .field input is full width by default; the tree's boxes are not fields */
+.tp-tree input[type=checkbox],.field label.chk input[type=checkbox]{width:auto;
+  flex:0 0 auto;margin:0;padding:0}

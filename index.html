@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>SAT Trainer</title>
-<link rel="stylesheet" href="assets/styles.css">
+<link rel="stylesheet" href="assets/styles.css?v=1.1.0">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#127891;</text></svg>">
 </head>
 <body>
@@ -108,6 +108,7 @@
     <button class="btn ghost" id="btnSettings">⚙️ Settings</button>
   </nav>
 
+  <div class="save-state" id="saveState"></div>
   <section class="home-recent" id="homeRecent"></section>
   <footer class="home-foot">Question banks: <span id="bankInfo"></span></footer>
 </main>
@@ -193,7 +194,8 @@ window.addEventListener('error', function (e) {
   if (el && (el.tagName === 'SCRIPT' || el.tagName === 'LINK')) {
     var url = el.src || el.href || '';
     // missing question data is the normal first-run state; app.js explains it
-    if (/data\/(english|math)\.js$/.test(url)) return;
+    // a missing save file is the normal case; a missing bank is handled by app.js
+    if (/data\/(english|math|save)\.js$/.test(url)) return;
     note.innerHTML = '<b>Could not load ' + url.split('/').pop() + '</b><br>' +
       'Keep the <code>assets</code> and <code>data</code> folders next to ' +
       '<code>index.html</code>.';
@@ -206,9 +208,12 @@ window.addEventListener('error', function (e) {
 </script>
 <script src="data/english.js"></script>
 <script src="data/math.js"></script>
-<script src="assets/store.js"></script>
-<script src="assets/charts.js"></script>
-<script src="assets/reference.js"></script>
-<script src="assets/app.js"></script>
+<!-- Optional. Park an exported save here and it is restored on launch. -->
+<script src="data/save.js"></script>
+<script src="assets/store.js?v=1.1.0"></script>
+<script src="assets/savefile.js?v=1.1.0"></script>
+<script src="assets/charts.js?v=1.1.0"></script>
+<script src="assets/reference.js?v=1.1.0"></script>
+<script src="assets/app.js?v=1.1.0"></script>
 </body>
 </html>

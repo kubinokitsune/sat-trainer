@@ -22,11 +22,13 @@ No install. No server. No account. No data leaves your computer.
 - [Setup](#setup)
 - [How the adaptive engine works](#how-the-adaptive-engine-works)
 - [The four practice modes](#the-four-practice-modes)
+- [Keeping your progress safe](#keeping-your-progress-safe)
 - [Progress tracking](#progress-tracking)
 - [Where the questions come from](#where-the-questions-come-from)
 - [Troubleshooting](#troubleshooting)
 - [How it works under the hood](#how-it-works-under-the-hood)
 - [Project layout](#project-layout)
+- [Changelog](#changelog)
 - [Licence](#licence)
 
 ---
@@ -39,9 +41,11 @@ No install. No server. No account. No data leaves your computer.
 | **Real test interface** | Two-pane Reading and Writing layout, Mark for Review, ABC answer eliminator, highlighting, question navigator, hideable timer — modelled on Bluebook. |
 | **Full practice test** | All four modules, 98 questions, the 10-minute break, and a second module whose difficulty is chosen by your first-module score, like the real digital SAT. Ends with an estimated 1600-scale score. |
 | **Math tools** | The Desmos graphing calculator and the official SAT reference sheet, available exactly where the real test gives them to you. |
-| **Gamified** | XP with a combo multiplier, levels, a daily goal, a day streak, and 15 badges. |
+| **Gamified** | XP with a combo multiplier, levels, a daily goal, a day streak, and 33 badges. |
 | **Analytics** | Accuracy over time, per-domain mastery, and explicit "improving" and "needs attention" lists computed per skill. |
-| **Private** | Everything runs from `file://` in your browser. Progress lives in `localStorage` on your machine. Nothing is uploaded. |
+| **Custom drills** | Pick individual skills, a difficulty, a question count, and optionally a clock sized to that count at real test pace. |
+| **Save files** | Progress is mirrored to a file you own, and restored automatically on launch — not trapped in browser storage. |
+| **Private** | Everything runs from `file://` in your browser. Nothing is uploaded. |
 
 Works in Chrome, Edge, Firefox and Safari on desktop.
 
@@ -102,7 +106,7 @@ py -3 tools/extract.py
 
 This takes **10–20 minutes** for the full bank, because every Math question is
 rendered from the PDF (see [under the hood](#how-it-works-under-the-hood)).
-You'll see progress as it goes. It produces roughly **90 MB** in `data/`.
+You'll see progress as it goes. It produces roughly **100 MB** in `data/`.
 
 ### 5. Open the app
 
@@ -148,7 +152,47 @@ and the adaptive second module. Modules are built to the real domain blueprint
 (a Reading and Writing module comes out 8/7/7/5 across the four domains, in
 test-day order) and end with an estimated score.
 
-**Custom drill** — pick a section and the exact domains you want to hammer.
+**Custom drill** — pick a section, then tick the exact **skills** you want from a
+topic tree that shows how many questions each one holds. Set a difficulty, choose
+how many questions, and optionally start a clock. The suggested time is that many
+questions at real test pace (71s each for Reading and Writing, 95s for Math), and
+you can drag it anywhere between half and double that.
+
+---
+
+## Keeping your progress safe
+
+By default the app stores progress in your browser. That is fine day to day, but
+clearing site data wipes it, and it does not follow you to another computer. So
+progress can also live in a **save file you own**.
+
+Open **Settings → Save file**:
+
+| | |
+|---|---|
+| **Link a save file…** | Chrome and Edge only. Pick a file once and every answer is written to it as you go. |
+| **Download a copy** | Works everywhere. Saves `save.js` through the normal download flow. |
+| **Load from file…** | Restore from any save file you have. |
+
+### Make it restore itself
+
+Save the file as **`data/save.js`** inside the project folder. `index.html` loads
+that file on launch, so your progress comes back by itself — even if the browser
+forgot everything.
+
+The neatest setup is to click **Link a save file…** and point it straight at
+`data/save.js`. From then on the app writes to it as you practise and reads it
+back the next time you open the page.
+
+Restoring never overwrites silently. If the file is older than what is already in
+the browser, the app says so and shows both timestamps and question counts before
+you decide.
+
+> Browsers won't let a page re-open a file on its own for security reasons, so
+> the write link lasts for the session and you re-click it next time. The
+> `data/save.js` autoload is what covers you if you forget — a page opened from
+> `file://` cannot use IndexedDB in Chrome, which is where a lasting file handle
+> would otherwise be kept.
 
 ---
 
@@ -196,15 +240,25 @@ installed, make sure it's the same one you run the script with.
 The PDFs aren't in `question-banks/`, or the export didn't include answers and
 rationales. Re-export with **"Include correct answer and rationale"** ticked.
 
+**I regenerated the data but the app shows the old questions**
+The browser cached the old `data/*.js`. Hard-refresh with **Ctrl+Shift+R**
+(**Cmd+Shift+R** on a Mac).
+
 **The extractor skipped some questions**
-A handful of questions in the College Board export are defective — a missing
-answer choice, or an answer that exists only as an image inside the rationale
-with no text form. The extractor names each one it skips. A few out of thousands
-is normal.
+A handful of questions in the College Board export are defective — artwork that
+was never drawn for one of the answer choices, or an answer that exists only
+inside the rationale with no text form. Rather than ship a question you cannot
+answer, the extractor skips it and names it. On the full bank that is about
+9 questions out of 3,770, which is normal.
 
 **The Desmos calculator won't load**
 It's fetched from desmos.com, so it needs an internet connection. Everything else
 works offline. You'll get a link to Desmos instead of a broken panel.
+
+**I lost my progress / I want it on another computer**
+See [Keeping your progress safe](#keeping-your-progress-safe). Save the file as
+`data/save.js` and it restores itself on every launch, on any machine you copy
+the folder to.
 
 **My progress disappeared**
 Progress lives in browser `localStorage`, so it's per-browser and per-machine, and
@@ -244,11 +298,29 @@ handling:
   the list.
 
 **Math** is a different problem: the export draws every equation, graph and table
-as **vector artwork rather than text**. There is no equation text to recover — a
+as **artwork rather than text**. There is no equation text to recover — a
 question reads as "In the given equation, and are constants". So Math questions
 are rendered as images cropped from the original PDF, tightened to the ink, in
 greyscale where the region has no colour. They look exactly as the College Board
-typeset them, which is why `data/img` ends up around 90 MB.
+typeset them, which is why `data/img` ends up around 100 MB.
+
+Cropping to the ink is where this got interesting. The export uses **three**
+different ways to draw the same maths:
+
+- most equations and graphs are **vector paths**;
+- fractions, radicals and some graphs are **embedded rasters**;
+- everything else is ordinary text.
+
+Measuring only the first and third — which is what the extractor originally did —
+means a choice consisting of nothing but a fraction measures as empty and gets
+dropped. That silently blanked one or more answer choices on 195 questions, and
+hit "which graph shows…" questions hardest, since every option there is a picture.
+
+The second trap is that a raster fraction is roughly **three times the height of
+the text row it sits on**. Cropping between one choice's row and the next slices
+the numerator off. So each piece of ink is assigned to the choice whose band
+contains its *centre*, and a choice's crop is the union of what it owns rather
+than the gap between two labels.
 
 The 62 Reading and Writing questions built on a chart get the same treatment for
 the graphic only — their axis labels are rotated and don't survive extraction —
@@ -264,6 +336,7 @@ sat-trainer/
 ├─ assets/
 │  ├─ app.js             screens, adaptive engine, Bluebook runner
 │  ├─ store.js           progress, XP, badges, analytics
+│  ├─ savefile.js        export, import and autosave to a file on disk
 │  ├─ charts.js          dependency-free SVG charts
 │  ├─ reference.js       SAT reference sheet + Desmos
 │  └─ styles.css
@@ -271,13 +344,20 @@ sat-trainer/
 │  ├─ extract.py         PDF → app data
 │  └─ patch_missing.py   recovers older-format questions
 ├─ question-banks/       ← your PDF exports go here (gitignored)
-├─ data/                 ← generated question data (gitignored)
+├─ data/                 ← generated question data + save.js (gitignored)
+├─ CHANGELOG.md
 ├─ requirements.txt
 └─ LICENSE
 ```
 
 The app has **no build step and no runtime dependencies**. `assets/` is plain
 HTML, CSS and JavaScript; charts are hand-rolled SVG so they work offline.
+
+---
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 ---
 

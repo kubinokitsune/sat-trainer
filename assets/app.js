@@ -11,12 +11,19 @@ const esc = s => String(s == null ? '' : s)
   .replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const paras = t => String(t || '').split(/\n{2,}/).filter(p => p.trim())
   .map(p => `<p${p.startsWith('• ') ? ' class="bul"' : ''}>${esc(p)}</p>`).join('');
+/* Question images are cropped straight out of the PDF. They are never lazy:
+   a lazy image inside a pane that is still being laid out can be judged
+   off-screen and then never load, which showed up as blank answer choices. */
 const imgs = list => (list || []).map(src =>
-  `<img src="${esc(src)}" alt="" loading="lazy">`).join('');
+  `<img src="${esc(src)}" alt="" decoding="async">`).join('');
 /** Chart passages: full-width render plus a click-to-enlarge affordance. */
 const figure = list => !list || !list.length ? '' :
   '<div class="figbox"><button class="figzoom" data-zoom="' + esc(list.join('|')) +
   '">🔍 Enlarge figure</button>' + imgs(list) + '</div>';
+/** Math is a picture of typeset maths, so give it its own enlarge button. */
+const mathFig = list => !list || !list.length ? '' :
+  '<div class="mathfig">' + imgs(list) +
+  '<button class="figzoom" data-zoom="' + esc(list.join('|')) + '">🔍 Enlarge</button></div>';
 const pct = v => v == null ? '—' : Math.round(v * 100) + '%';
 
 /* ══════════════════ data ══════════════════ */
@@ -139,11 +146,16 @@ function buildModule(subject, n, mix, filt) {
       }
     });
   });
-  // top up if any bucket ran dry
-  while (out.length < n) {
-    const q = pickOne(subject, DIFFS[1], exclude, filt);
-    if (!q) break;
-    exclude.add(q.id); out.push(q);
+  // Top up if any bucket ran dry. A module has to be exactly n questions, so
+  // widen the difficulty before giving up, and only stop when the whole
+  // filtered pool really is exhausted.
+  for (const d of [DIFFS[1], DIFFS[0], DIFFS[2], null]) {
+    while (out.length < n) {
+      const q = pickOne(subject, d, exclude, filt);
+      if (!q || exclude.has(q.id)) break;
+      exclude.add(q.id); out.push(q);
+    }
+    if (out.length >= n) break;
   }
   // test-day ordering: R&W groups by domain, Math ramps easy -> hard
   if (subject === 'rw') {
@@ -181,6 +193,48 @@ function nextAdaptive() {
   SES.items.push(mkItem(q, SES.subject));
   SES.idx = SES.items.length - 1;
   return true;
+}
+
+/** Fixed-length drill from an arbitrary skill filter. */
+function buildDrill(subject, filt, n, difficulty) {
+  const exclude = new Set();
+  const out = [];
+  const diffs = difficulty ? [difficulty] : DIFFS;
+  const per = apportion(n, difficulty ? [1] : MIX.m1);
+  diffs.forEach((d, i) => {
+    for (let k = 0; k < per[i]; k++) {
+      const q = pickOne(subject, d, exclude, filt);
+      if (q) { exclude.add(q.id); out.push(q); }
+    }
+  });
+  while (out.length < n) {
+    const q = pickOne(subject, difficulty || DIFFS[1], exclude, filt);
+    if (!q || exclude.has(q.id)) break;      // pool exhausted
+    exclude.add(q.id); out.push(q);
+  }
+  for (let i = out.length - 1; i > 0; i--) {   // interleave difficulties
+    const j = (Math.random() * (i + 1)) | 0;
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+function startDrill(subject, filt, n, difficulty, seconds) {
+  const qs = buildDrill(subject, filt, n, difficulty);
+  if (!qs.length) { toast('No questions match that selection.'); return; }
+  const timed = !!seconds;
+  SES = {
+    mode: 'drill', subject, filt,
+    items: qs.map(q => mkItem(q, subject)),
+    idx: 0,
+    timed,
+    practice: !timed,
+    endsAt: timed ? Date.now() + seconds * 1000 : 0,
+    title: SUBJ[subject] + ' — custom drill · ' + qs.length + ' questions' +
+      (timed ? ' · ' + mmss(seconds) : '')
+  };
+  if (qs.length < n) toast('Only ' + qs.length + ' questions matched that selection.');
+  openSession();
 }
 
 function startModule(subject) {
@@ -302,7 +356,7 @@ function paintSession() {
   } else L.innerHTML = '';
 
   // ── right pane ──
-  const practice = SES.mode === 'adaptive';
+  const practice = SES.mode === 'adaptive' || !!SES.practice;
   let h = '<div class="q-head">' +
     `<div class="q-num">${SES.idx + 1}</div>` +
     `<button class="q-mark${it.marked ? ' on' : ''}" id="qMark">` +
@@ -310,7 +364,7 @@ function paintSession() {
     `<button class="q-abc${it.abc ? ' on' : ''}" id="qAbc">ABC</button></div>`;
 
   h += '<div class="q-stem">' +
-    (isMath ? imgs(q.stemImgs) : paras(q.prompt || q.stem)) + '</div>';
+    (isMath ? mathFig(q.stemImgs) : paras(q.prompt || q.stem)) + '</div>';
 
   if (q.type === 'spr') {
     h += '<div class="spr">' +
@@ -360,15 +414,71 @@ function paintSession() {
   $('#btnBack').disabled = SES.idx === 0 || SES.mode === 'adaptive';
 }
 
+/** Split an official rationale into the main explanation and the per-choice
+ *  notes that follow it ("Choice A is incorrect because ..."). The bank writes
+ *  these consistently, so a miss just leaves the text whole. */
+function splitRationale(text, answer) {
+  const t = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!t) return null;
+  const re = /(Choices?\s+([A-D])(?:\s*,\s*[A-D])*(?:\s*,?\s*and\s+[A-D])?\s+(?:is|are)\s+(?:incorrect|the best answer|correct))/g;
+  const cuts = [];
+  let m;
+  while ((m = re.exec(t))) cuts.push({ at: m.index, letter: m[2], head: m[1] });
+  if (!cuts.length) return { main: t, notes: [] };
+  const main = t.slice(0, cuts[0].at).trim();
+  const notes = cuts.map((c, i) => ({
+    letter: c.letter,
+    text: t.slice(c.at, i + 1 < cuts.length ? cuts[i + 1].at : t.length).trim()
+  }));
+  // Anything before the first "Choice X ..." is the real explanation. If the
+  // rationale opens with it instead, that first block explains the key.
+  if (!main) {
+    const first = notes.shift();
+    return { main: first.text, notes };
+  }
+  return { main, notes };
+}
+
 function feedbackHTML(it) {
   const q = it.q, ok = it.correct;
   const dcls = { Easy: 'e', Medium: 'm', Hard: 'h' }[q.difficulty] || '';
-  let h = `<div class="fb ${ok ? 'ok' : 'no'}">` +
-    `<h4>${ok ? '✅ Correct' : '❌ Not quite'}` +
-    (ok ? ` <span class="xp">+${it.gained} XP</span>` : '') + '</h4>';
-  if (!ok) h += `<div style="margin-bottom:10px"><b>Correct answer: ${esc(q.answer)}</b>` +
-    (it.ans ? ` · you answered ${esc(it.ans)}` : ' · you left this blank') + '</div>';
-  h += '<div class="rat">' + (q.ratImgs ? imgs(q.ratImgs) : paras(q.rationale || '')) + '</div>';
+  const yours = q.type === 'spr'
+    ? (it.ans ? `“${esc(it.ans)}”` : 'blank')
+    : (it.ans ? esc(it.ans) : 'blank');
+
+  let h = `<div class="fb ${ok ? 'ok' : 'no'}">`;
+
+  // ── verdict ──
+  h += '<div class="fb-top">' +
+    `<div class="fb-verdict">${ok ? '✅ Correct' : '❌ Not quite'}</div>` +
+    (ok && it.gained ? `<span class="xp">+${it.gained} XP</span>` : '') +
+    '</div>';
+
+  // ── your answer vs the key ──
+  h += '<div class="fb-ans">' +
+    `<span class="fb-chip ${ok ? 'good' : 'bad'}"><i>Your answer</i><b>${yours}</b></span>` +
+    (ok ? '' : `<span class="fb-chip good"><i>Correct answer</i><b>${esc(q.answer)}</b></span>`) +
+    '</div>';
+
+  // ── explanation ──
+  const split = q.ratImgs ? null : splitRationale(q.rationale, q.answer);
+  h += '<div class="fb-sec"><h5>Why the answer is ' + esc(q.answer) + '</h5>';
+  if (q.ratImgs) h += '<div class="rat">' + mathFig(q.ratImgs) + '</div>';
+  else if (split) h += '<div class="rat">' + paras(split.main) + '</div>';
+  else h += '<div class="rat"><p>No explanation was included for this question.</p></div>';
+  h += '</div>';
+
+  if (split && split.notes.length) {
+    h += '<details class="fb-why"' + (ok ? '' : ' open') + '><summary>' +
+      'Why the other choices are wrong</summary><div class="fb-notes">' +
+      split.notes.map(n => {
+        const mine = !ok && n.letter === it.ans;
+        return `<div class="fb-note${mine ? ' mine' : ''}">` +
+          `<span class="ltr">${esc(n.letter)}</span><p>${esc(n.text)}` +
+          (mine ? ' <b>← this is the one you picked</b>' : '') + '</p></div>';
+      }).join('') + '</div></details>';
+  }
+
   h += `<div class="fb-meta"><span class="pill ${dcls}">${esc(q.difficulty)}</span>` +
     `<span class="pill">${esc(q.domain)}</span><span class="pill">${esc(q.skill)}</span>`;
   if (it.move === 1) h += '<span class="pill h">⬆ Difficulty up</span>';
@@ -428,7 +538,7 @@ function stopClock() {
 
 function onNext() {
   const it = cur();
-  if (SES.mode === 'adaptive') {
+  if (SES.mode === 'adaptive' || SES.practice) {
     if (!it.checked) {
       if (it.ans == null || it.ans === '') return;
       stopClock();
@@ -441,9 +551,12 @@ function onNext() {
       if (r.move === -1) toast('Difficulty eased → ' + DIFFS[Store.state().level[SES.subject]]);
       paintSession();
       refreshHome();
-    } else {
-      if (nextAdaptive()) paintSession();
+      return;
     }
+    if (SES.mode === 'adaptive') { if (nextAdaptive()) paintSession(); return; }
+    // fixed-length untimed drill
+    if (SES.idx < SES.items.length - 1) { SES.idx++; paintSession(); }
+    else finishDrill();
     return;
   }
   // timed module / full test
@@ -490,6 +603,13 @@ function paintReviewPage() {
   $('#btnNext').textContent = 'Submit';
   $('#btnNext').disabled = false;
   $('#btnBack').disabled = false;
+}
+
+/** Untimed drill: every answer was already graded and recorded as it went. */
+function finishDrill() {
+  clearInterval(tick);
+  const correct = SES.items.filter(i => i.correct).length;
+  showModuleResults(correct, correct / SES.items.length);
 }
 
 function finishModule() {
@@ -703,6 +823,27 @@ function refreshHome() {
   $('#bankInfo').textContent =
     `${BANK.rw.length.toLocaleString()} Reading and Writing · ${BANK.math.length.toLocaleString()} Math`;
 
+  // save-file state, so an unbacked-up streak is visible without digging
+  const sv = $('#saveState');
+  if (sv) {
+    if (SaveFile.isLinked()) {
+      sv.className = 'save-state on';
+      sv.innerHTML = `💾 Auto-saving to <b>${esc(SaveFile.name())}</b>`;
+    } else if (!all.n) {
+      sv.className = 'save-state';
+      sv.innerHTML = '';
+    } else {
+      sv.className = 'save-state warn';
+      sv.innerHTML = '⚠️ Progress is only in this browser. ' +
+        '<button class="lnk" id="saveNow">Save it to a file</button>';
+      const b = $('#saveNow');
+      if (b) b.onclick = async () => {
+        try { const n = await SaveFile.exportNow(); toast('Saved to ' + n); refreshHome(); }
+        catch (e) { if (e && e.name !== 'AbortError') toast('Could not save', 'bad'); }
+      };
+    }
+  }
+
   // recent tests
   const t = s.tests.slice(-3).reverse();
   $('#homeRecent').innerHTML = t.length
@@ -815,6 +956,86 @@ function showBadges() {
     '</div><div class="modal-actions"><button class="btn primary" data-close-modal>Close</button></div>');
 }
 
+/* ══════════════════ save files ══════════════════ */
+function paintSaveBox() {
+  const box = $('#sfBox');
+  if (!box) return;
+  const linked = SaveFile.isLinked();
+  let h = '<div class="sf-state ' + (linked ? 'on' : '') + '">' +
+    (linked
+      ? `<b>💾 Auto-saving to ${esc(SaveFile.name())}</b>` +
+        '<span>Every answer is written to that file as you go.</span>'
+      : '<b>⚠️ Not linked to a file</b>' +
+        '<span>Progress is only in this browser right now.</span>') +
+    '</div><div class="sf-btns">';
+  if (SaveFile.supported)
+    h += `<button class="btn small ${linked ? 'ghost' : 'primary'}" id="sfLink">` +
+      (linked ? 'Change file…' : 'Link a save file…') + '</button>';
+  else
+    h += '<button class="btn small primary" id="sfDl">Download save file</button>';
+  h += '<button class="btn small ghost" id="sfImp">Load from file…</button>';
+  if (SaveFile.supported)
+    h += '<button class="btn small ghost" id="sfDl">Download a copy</button>';
+  h += '</div>' +
+    '<div class="note" style="margin-top:8px">Tip: save it as <code>data/save.js</code> ' +
+    'inside this folder and the app restores it by itself next time you open it.</div>';
+  box.innerHTML = h;
+
+  const link = $('#sfLink'), imp = $('#sfImp'), dl = $('#sfDl');
+  if (link) link.onclick = async () => {
+    try { const n = await SaveFile.link(); toast('Auto-saving to ' + n); paintSaveBox(); refreshHome(); }
+    catch (e) { if (e && e.name !== 'AbortError') toast('Could not link that file', 'bad'); }
+  };
+  if (dl) dl.onclick = () => { SaveFile.download(); toast('Save file downloaded'); refreshHome(); };
+  if (imp) imp.onclick = async () => {
+    let data;
+    try { data = await SaveFile.importNow(); }
+    catch (e) { if (e && e.name !== 'AbortError') toast(e.message || 'Could not read that file', 'bad'); return; }
+    confirmRestore(data, () => { paintSaveBox(); });
+  };
+}
+
+/** Never silently overwrite existing progress with an older file. */
+function confirmRestore(data, after) {
+  const cur = Store.state();
+  const theirs = data.savedAt || (data.state && data.state.savedAt) || 0;
+  const mine = cur.savedAt || 0;
+  const n = (data.state.attempts || []).length;
+  const older = theirs && mine && theirs < mine;
+  modal('<h3>Restore progress?</h3>' +
+    `<p>That file holds <b>${n.toLocaleString()}</b> answered questions` +
+    (theirs ? `, last saved <b>${new Date(theirs).toLocaleString()}</b>` : '') + '.</p>' +
+    `<p>You currently have <b>${cur.attempts.length.toLocaleString()}</b> here` +
+    (mine ? `, last saved <b>${new Date(mine).toLocaleString()}</b>` : '') + '.</p>' +
+    (older ? '<p class="warn-line">⚠️ The file is <b>older</b> than what is in this ' +
+      'browser. Restoring will lose the newer work.</p>' : '') +
+    '<p>Restoring replaces everything currently here.</p>' +
+    '<div class="modal-actions"><button class="btn ghost" data-close-modal>Cancel</button>' +
+    '<button class="btn primary" id="rsGo">Restore</button></div>');
+  $('#rsGo').onclick = () => {
+    Store.replace(data.state);
+    closeModal(); refreshHome();
+    toast('Progress restored — ' + n.toLocaleString() + ' questions');
+    if (typeof after === 'function') after();
+  };
+}
+
+/** On launch: data/save.js, if present, is a save the user parked there. */
+function autoloadSave() {
+  const f = window.SAT_SAVE;
+  if (!f || !f.state) return;
+  const cur = Store.state();
+  const theirs = f.savedAt || f.state.savedAt || 0;
+  const mine = cur.savedAt || 0;
+  const fileN = (f.state.attempts || []).length;
+  if (!cur.attempts.length && fileN) {          // nothing here — just load it
+    Store.replace(f.state);
+    toast('💾 Progress restored from data/save.js');
+    return;
+  }
+  if (theirs > mine + 1000 && fileN !== cur.attempts.length) confirmRestore(f);
+}
+
 /* ══════════════════ settings & custom drill ══════════════════ */
 function showSettings() {
   const s = Store.state();
@@ -833,10 +1054,17 @@ function showSettings() {
     `<select id="setLvlM">${DIFFS.map((d, i) =>
       `<option value="${i}"${s.level.math === i ? ' selected' : ''}>Math: ${d}</option>`).join('')}</select>` +
     '</div><div class="note">The engine moves these automatically as you practise.</div></div>' +
+    '<div class="sec-rule"><span>Save file</span></div>' +
+    '<p class="note" style="margin:0 0 10px">Your progress lives in this browser. ' +
+    'Keep a copy on disk so it survives clearing site data, and so you can ' +
+    'move it to another computer.</p>' +
+    '<div id="sfBox"></div>' +
     '<div class="modal-actions">' +
     '<button class="btn ghost" id="setReset">Reset all progress</button>' +
     '<button class="btn ghost" data-close-modal>Cancel</button>' +
     '<button class="btn primary" id="setSave">Save</button></div>');
+
+  paintSaveBox();
 
   $('#setSave').onclick = () => {
     const st = Store.state();
@@ -856,29 +1084,150 @@ function showSettings() {
   };
 }
 
-function showCustom() {
-  const domainsOf = sub => Array.from(new Set(BANK[sub].map(q => q.domain))).sort();
-  const build = sub => domainsOf(sub).map(d =>
-    `<label style="display:flex;gap:8px;align-items:center;font-size:13.5px;font-weight:500;margin:5px 0">` +
-    `<input type="checkbox" class="cdom" value="${esc(d)}" checked> ${esc(d)}</label>`).join('');
+/* Seconds per question the real test allows, used to size drill timers. */
+const PACE = { rw: 32 * 60 / 27, math: 35 * 60 / 22 };
+const mmss = sec => Math.floor(sec / 60) + ':' + String(Math.round(sec) % 60).padStart(2, '0');
 
-  modal('<h3>Custom drill</h3><p>Target exactly what you want to work on. ' +
-    'Difficulty still adapts as you go.</p>' +
+/** Topic tree: every skill in the section, grouped by domain, with counts. */
+function taxonomy(sub) {
+  const byDom = {};
+  for (const q of BANK[sub]) {
+    const d = (byDom[q.domain] = byDom[q.domain] || { name: q.domain, n: 0, skills: {} });
+    d.n++;
+    d.skills[q.skill] = (d.skills[q.skill] || 0) + 1;
+  }
+  return Object.values(byDom)
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map(d => ({
+      name: d.name, n: d.n,
+      skills: Object.entries(d.skills)
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([name, n]) => ({ name, n }))
+    }));
+}
+
+function showCustom() {
+  const state = { sub: 'rw', diff: '', n: 15, timed: false, mins: 0 };
+
+  const treeHTML = sub => taxonomy(sub).map((d, i) => {
+    const id = 'dom' + i;
+    return '<div class="tp-dom">' +
+      `<label class="tp-head"><input type="checkbox" class="tp-all" data-dom="${id}" checked>` +
+      `<b>${esc(d.name)}</b><span class="tp-n">${d.n}</span></label>` +
+      '<div class="tp-skills">' + d.skills.map(s =>
+        `<label class="tp-skill"><input type="checkbox" class="tp-sk" data-dom="${id}" ` +
+        `value="${esc(s.name)}" checked><span>${esc(s.name)}</span>` +
+        `<span class="tp-n">${s.n}</span></label>`).join('') +
+      '</div></div>';
+  }).join('');
+
+  modal('<h3>Custom drill</h3>' +
+    '<p>Pick exactly what you want to work on, how many questions, and whether ' +
+    'the clock is running.</p>' +
+
+    '<div class="row2">' +
     '<div class="field"><label>Section</label>' +
     '<select id="cSub"><option value="rw">Reading and Writing</option>' +
     '<option value="math">Math</option></select></div>' +
-    '<div class="field"><label>Domains</label><div id="cDoms">' + build('rw') + '</div></div>' +
-    '<div class="modal-actions"><button class="btn ghost" data-close-modal>Cancel</button>' +
-    '<button class="btn primary" id="cGo">Start drill</button></div>');
+    '<div class="field"><label>Difficulty</label>' +
+    '<select id="cDiff"><option value="">Mixed (test-like)</option>' +
+    DIFFS.map(d => `<option value="${d}">${d} only</option>`).join('') +
+    '</select></div></div>' +
 
-  $('#cSub').onchange = e => { $('#cDoms').innerHTML = build(e.target.value); };
-  $('#cGo').onclick = () => {
-    const sub = $('#cSub').value;
-    const doms = $$('.cdom').filter(c => c.checked).map(c => c.value);
-    if (!doms.length) { toast('Pick at least one domain'); return; }
-    closeModal();
-    startAdaptive(sub, { domains: doms });
+    '<div class="field"><div class="tp-bar"><label>Topics</label>' +
+    '<span><button type="button" class="lnk" id="cAll">Select all</button> · ' +
+    '<button type="button" class="lnk" id="cNone">Clear</button></span></div>' +
+    '<div class="tp-tree" id="cTree">' + treeHTML('rw') + '</div>' +
+    '<div class="note" id="cAvail"></div></div>' +
+
+    '<div class="field"><label>Questions — <b id="cNLbl">15</b></label>' +
+    '<input type="range" id="cN" min="5" max="60" step="1" value="15" class="rng"></div>' +
+
+    '<div class="field"><label class="chk"><input type="checkbox" id="cTimed"> ' +
+    'Practise against a clock</label>' +
+    '<div id="cTimeWrap" hidden>' +
+    '<input type="range" id="cMins" class="rng" min="1" max="2" step="1" value="1">' +
+    '<div class="note" id="cTimeLbl"></div></div></div>' +
+
+    '<div class="modal-actions"><button class="btn ghost" data-close-modal>Cancel</button>' +
+    '<button class="btn primary" id="cGo">Start drill</button></div>', 'wide-modal');
+
+  const picked = () => $$('#cTree .tp-sk').filter(c => c.checked).map(c => c.value);
+
+  function avail() {
+    const sk = picked();
+    if (!sk.length) return 0;
+    const f = { skills: sk };
+    if (state.diff) f.difficulty = state.diff;
+    return pool(state.sub, f).length;
+  }
+
+  function syncTime() {
+    const rec = state.n * PACE[state.sub];
+    const lo = Math.max(60, Math.round(rec * 0.5 / 30) * 30);
+    const hi = Math.round(rec * 2 / 30) * 30;
+    const sl = $('#cMins');
+    sl.min = lo; sl.max = hi; sl.step = 30;
+    if (!state.mins || state.mins < lo || state.mins > hi) state.mins = Math.round(rec / 30) * 30;
+    sl.value = state.mins;
+    $('#cTimeLbl').innerHTML =
+      `<b>${mmss(state.mins)}</b> for ${state.n} questions ` +
+      `(${(state.mins / state.n).toFixed(0)}s each) · test pace is ` +
+      `<b>${mmss(rec)}</b> · allowed ${mmss(lo)}–${mmss(hi)}`;
+  }
+
+  function sync() {
+    const a = avail();
+    const sk = picked();
+    $('#cNLbl').textContent = state.n;
+    $('#cAvail').textContent = sk.length
+      ? `${a.toLocaleString()} question${a === 1 ? '' : 's'} match this selection` +
+        (a < state.n ? ' — fewer than you asked for, the drill will be shorter' : '')
+      : 'Pick at least one topic.';
+    $('#cAvail').classList.toggle('warn', !sk.length || a < state.n);
+    $('#cGo').disabled = !sk.length || a === 0;
+    if (state.timed) syncTime();
+  }
+
+  $('#cSub').onchange = e => {
+    state.sub = e.target.value;
+    $('#cTree').innerHTML = treeHTML(state.sub);
+    sync();
   };
+  $('#cDiff').onchange = e => { state.diff = e.target.value; sync(); };
+  $('#cN').oninput = e => { state.n = +e.target.value; sync(); };
+  $('#cMins').oninput = e => { state.mins = +e.target.value; syncTime(); };
+  $('#cTimed').onchange = e => {
+    state.timed = e.target.checked;
+    $('#cTimeWrap').hidden = !state.timed;
+    if (state.timed) syncTime();
+  };
+  $('#cAll').onclick = () => { $$('#cTree input').forEach(c => c.checked = true); sync(); };
+  $('#cNone').onclick = () => { $$('#cTree input').forEach(c => c.checked = false); sync(); };
+
+  // domain header toggles its skills; a skill toggles its header back
+  $('#cTree').onchange = e => {
+    const t = e.target;
+    if (t.classList.contains('tp-all'))
+      $$(`#cTree .tp-sk[data-dom="${t.dataset.dom}"]`).forEach(c => c.checked = t.checked);
+    if (t.classList.contains('tp-sk')) {
+      const sibs = $$(`#cTree .tp-sk[data-dom="${t.dataset.dom}"]`);
+      const head = $(`#cTree .tp-all[data-dom="${t.dataset.dom}"]`);
+      head.checked = sibs.some(c => c.checked);
+      head.indeterminate = head.checked && sibs.some(c => !c.checked);
+    }
+    sync();
+  };
+
+  $('#cGo').onclick = () => {
+    const sk = picked();
+    if (!sk.length) { toast('Pick at least one topic'); return; }
+    const filt = { skills: sk };
+    closeModal();
+    startDrill(state.sub, filt, state.n, state.diff, state.timed ? state.mins : 0);
+  };
+
+  sync();
 }
 
 function showIntro() {
@@ -904,7 +1253,13 @@ function showIntro() {
 }
 
 /* ══════════════════ chrome: modal, toast, panels ══════════════════ */
-function modal(html) { $('#modalCard').innerHTML = html; $('#modal').hidden = false; }
+function modal(html, cls) {
+  const card = $('#modalCard');
+  card.className = 'modal-card' + (cls ? ' ' + cls : '');
+  card.innerHTML = html;
+  card.scrollTop = 0;
+  $('#modal').hidden = false;
+}
 function closeModal() { $('#modal').hidden = true; }
 
 function toast(msg, cls) {
@@ -1115,7 +1470,10 @@ function boot() {
     'Chrome or Edge window.</p>' +
     '<div class="modal-actions"><button class="btn primary" data-close-modal>Got it</button></div>'));
   Store.checkBadges();
+  SaveFile.onStatus(refreshHome);
+  SaveFile.onError(() => toast('Lost the link to the save file — re-link it in Settings', 'bad'));
   wire();
+  autoloadSave();
   refreshHome();
   show('home');
   $('#boot').style.display = 'none';

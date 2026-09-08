@@ -7,6 +7,9 @@ data/english.js
 data/math.js
 data/img/
 
+# Your progress. Personal, and yours to keep - never committed.
+data/save.js
+
 # ── Python ───────────────────────────────────────────────────────────────
 __pycache__/
 *.py[cod]

@@ -33,6 +33,7 @@ and no dependencies — reload the page and you're testing the real thing.
 
 - `app.js` — screens, session engine, question rendering
 - `store.js` — progress, XP, badges, analytics; the only thing that touches `localStorage`
+- `savefile.js` — export/import and autosave to a file on disk
 - `charts.js` — hand-rolled SVG charts, deliberately dependency-free so the app works offline
 - `reference.js` — the SAT reference sheet and Desmos loading
 

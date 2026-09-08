@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """Convert College Board question-bank PDF exports into JSON + PNG assets."""
-import pymupdf, re, os, sys, json
+import pymupdf, re, os, sys, json, collections
 
 sys.stdout.reconfigure(encoding="utf-8")
 
@@ -209,6 +209,13 @@ def region_has_colour(page, clip):
             return True
     for b in pg_text(page)["blocks"]:
         if b["type"] != 0:
+            # A raster whose palette we cannot read cheaply. Inline fractions
+            # and radicals are small and always black, so only a figure-sized
+            # one is worth the extra channels.
+            r = b["bbox"]
+            if not (pymupdf.Rect(r) & clip).is_empty and \
+                    min(r[2] - r[0], r[3] - r[1]) > 20:
+                return True
             continue
         for l in b["lines"]:
             if (pymupdf.Rect(l["bbox"]) & clip).is_empty:
@@ -231,6 +238,12 @@ def ink_bounds(page, y0, y1, x0, x1):
         hi = b if hi is None else max(hi, b)
     for blk in pg_text(page)["blocks"]:
         if blk["type"] != 0:
+            # An embedded raster - the export uses these for fractions,
+            # radicals and some graphs. Missing them dropped whole answer
+            # choices and cut the bottom off figures.
+            r = blk["bbox"]
+            if r[3] > y0 and r[1] < y1 and r[2] > x0 and r[0] < x1:
+                add(r[1], r[3])
             continue
         for l in blk["lines"]:
             r = l["bbox"]
@@ -241,6 +254,60 @@ def ink_bounds(page, y0, y1, x0, x1):
         if r[3] > y0 and r[1] < y1 and r[2] > x0 and r[0] < x1:
             add(r[1], r[3])
     return lo, hi
+
+
+def ink_boxes(page, y0, y1, x0, x1):
+    """Every piece of ink in a band: text lines, embedded rasters, vector art."""
+    out = []
+    for blk in pg_text(page)["blocks"]:
+        if blk["type"] != 0:
+            r = blk["bbox"]
+            if r[3] > y0 and r[1] < y1 and r[2] > x0 and r[0] < x1:
+                out.append(tuple(r))
+            continue
+        for l in blk["lines"]:
+            r = l["bbox"]
+            if r[3] > y0 and r[1] < y1 and r[2] > x0 and r[0] < x1:
+                out.append(tuple(r))
+    for d in pg_drawings(page):
+        r = d["rect"]
+        if r[3] > y0 and r[1] < y1 and r[2] > x0 and r[0] < x1:
+            out.append(tuple(r))
+    return out
+
+
+def choice_bands(doc, stream, choices, c_i):
+    """Vertical crop for each answer choice.
+
+    The letter rows only mark where each choice *starts*. An inline fraction
+    or radical is a raster roughly three times the height of the text row it
+    sits on, so cropping between consecutive rows slices the top off it.
+    Instead every piece of ink is assigned to the choice whose band contains
+    its centre, and the crop is the union of what each choice owns.
+
+    Returns [(letter, (page, top), (page, bottom))].
+    """
+    tops = [(stream[i][0], stream[i][1]) for i, _ in choices]
+    end = (stream[c_i][0], stream[c_i][1])
+    out = []
+    for n, (idx, letter) in enumerate(choices):
+        pi, ytop = tops[n]
+        npi, ynext = tops[n + 1] if n + 1 < len(tops) else end
+        if npi != pi:                       # choice runs over a page break
+            out.append((letter, (pi, ytop - 2.0), (npi, ynext - 2.0)))
+            continue
+        lo = hi = None
+        for (bx0, by0, bx1, by1) in ink_boxes(doc[pi], ytop - 20, ynext + 4, 0, 1e5):
+            cy = (by0 + by1) / 2.0
+            if not (ytop - 3.0 <= cy < ynext - 3.0):
+                continue
+            lo = by0 if lo is None else min(lo, by0)
+            hi = by1 if hi is None else max(hi, by1)
+        if lo is None:
+            out.append((letter, (pi, ytop - 2.0), (pi, ynext - 2.0)))
+        else:
+            out.append((letter, (pi, lo - 2.0), (pi, hi + 2.0)))
+    return out
 
 
 def render_region(doc, qid, tag, start, end, left=PAGE_LEFT, zoom=ZOOM):
@@ -466,13 +533,17 @@ def build(pdf_path, subject, render_math):
                                             (q_pi, q_y1 + 1), (a_pi, a_y0 - 1))
             rec["stemText"] = clean(join_lines(stream, q_i + 1, a_i))
             ci = {}
-            for n, (idx, letter) in enumerate(choices):
-                pi, y0, x0, y1, x1, t = stream[idx]
-                nxt = choices[n + 1][0] if n + 1 < len(choices) else c_i
-                npi, ny0 = stream[nxt][0], stream[nxt][1]
-                ci[letter] = render_region(doc, qid, letter,
-                                           (pi, y0 - 2.0), (npi, ny0 - 2.0),
+            bands = choice_bands(doc, stream, choices, c_i)
+            for n, (letter, start, end) in enumerate(bands):
+                x0 = stream[choices[n][0]][2]
+                ci[letter] = render_region(doc, qid, letter, start, end,
                                            left=x0 + 10.4)
+            blank = [k for k, v in ci.items() if not v]
+            if blank:
+                # A handful of exported questions are missing a choice's
+                # artwork entirely. Unanswerable, so leave them out.
+                problems.append((qid, "choice artwork missing from export", blank))
+                continue
             rec["choiceImgs"] = ci
             if rat is not None:
                 # worked solutions are reference reading, so a slightly lower
@@ -507,6 +578,10 @@ def build(pdf_path, subject, render_math):
                 txt = join_lines(stream, idx, nxt)
                 txt = CHOICE_RE.sub("", txt.strip(), count=1).strip()
                 ch[letter] = txt
+            blank = [k for k, v in ch.items() if not v.strip()]
+            if blank:
+                problems.append((qid, "choice text missing from export", blank))
+                continue
             rec["choices"] = ch
             if rat is not None:
                 rec["rationale"] = join_lines(stream, rat[0] + 1, len(stream))
@@ -517,6 +592,27 @@ def build(pdf_path, subject, render_math):
 
     doc.close()
     return questions, problems
+
+
+def canonicalise(questions):
+    """The export is not always consistent about capitalisation - a couple of
+    questions say 'Cross-text Connections' where the rest say 'Cross-Text'.
+    Left alone that splits one topic into two in the drill picker and in the
+    per-skill analytics, so fold each name onto its most common spelling."""
+    fixed = 0
+    for field in ("domain", "skill"):
+        counts = {}
+        for q in questions:
+            counts.setdefault(q[field].lower(), collections.Counter())[q[field]] += 1
+        best = {k: c.most_common(1)[0][0] for k, c in counts.items()}
+        for q in questions:
+            want = best[q[field].lower()]
+            if q[field] != want:
+                q[field] = want
+                fixed += 1
+    if fixed:
+        print("  normalised %d inconsistent domain/skill name(s)" % fixed)
+    return questions
 
 
 # ---------------------------------------------------------------- discovery
@@ -640,6 +736,7 @@ if __name__ == "__main__":
                            else ("ENGLISH", "SAT_ENGLISH", "english.js"))
         print("\nExtracting %s (this takes a few minutes)..." % label)
         qs, probs = build(banks[kind], kind, render_math=is_math)
+        canonicalise(qs)
         with open(os.path.join(DATA, out), "w", encoding="utf-8") as f:
             f.write("window.%s=" % var)
             json.dump(qs, f, ensure_ascii=False, separators=(",", ":"))
@@ -662,3 +759,5 @@ if __name__ == "__main__":
             print("  (skipped: %s)" % exc)
 
     print("\nDone. Open index.html in your browser.")
+    print("If it was already open, hard-refresh it (Ctrl+Shift+R) so the")
+    print("browser picks up the regenerated data, not its cached copy.")

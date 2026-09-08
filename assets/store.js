@@ -10,6 +10,7 @@ const Store = (() => {
   const defaults = () => ({
     v: 1,
     name: 'Felipe',
+    savedAt: 0,
     xp: 0,
     attempts: [],          // {t,id,s,d,k,f,c,ms}
     seen: {},              // id -> times served
@@ -39,11 +40,14 @@ const Store = (() => {
 
   let saveTimer = null;
   let saveBroken = false;
+  const changeSubs = [];
+
   function save() {
     clearTimeout(saveTimer);
     saveTimer = setTimeout(() => {
+      if (s.attempts.length > MAX_ATTEMPTS) s.attempts = s.attempts.slice(-MAX_ATTEMPTS);
+      s.savedAt = Date.now();
       try {
-        if (s.attempts.length > MAX_ATTEMPTS) s.attempts = s.attempts.slice(-MAX_ATTEMPTS);
         localStorage.setItem(KEY, JSON.stringify(s));
       } catch (e) {
         console.warn('save failed', e);
@@ -52,9 +56,24 @@ const Store = (() => {
           if (typeof onSaveError === 'function') onSaveError(e);
         }
       }
+      // Mirror to a real file on disk when one is linked. This runs even if
+      // localStorage failed, so a full quota is not a total loss.
+      for (const fn of changeSubs) { try { fn(s); } catch (e) { /* ignore */ } }
     }, 120);
   }
   let onSaveError = null;
+
+  /** Replace the whole progress state, e.g. from an imported save file. */
+  function replace(next) {
+    s = Object.assign(defaults(), next || {});
+    s.cfg = Object.assign(defaults().cfg, s.cfg || {});
+    s.level = Object.assign(defaults().level, s.level || {});
+    s.run = Object.assign(defaults().run, s.run || {});
+    if (!Array.isArray(s.attempts)) s.attempts = [];
+    if (!Array.isArray(s.tests)) s.tests = [];
+    save();
+    return s;
+  }
 
   const state = () => s;
   const today = () => new Date().toISOString().slice(0, 10);
@@ -223,7 +242,89 @@ const Store = (() => {
       id: 'master', ic: '👑', name: 'Domain Master', desc: '85%+ in a domain over 30+ questions',
       test: () => groupStats(null, 'd').some(g => g.n >= 30 && g.acc >= 0.85)
     },
-    { id: 'score1400', ic: '💎', name: '1400 Club', desc: 'Score 1400+ on a full test', test: () => s.tests.some(t => t.score >= 1400) }
+    { id: 'score1400', ic: '💎', name: '1400 Club', desc: 'Score 1400+ on a full test', test: () => s.tests.some(t => t.score >= 1400) },
+
+    /* ── volume ── */
+    { id: 'q500', ic: '📗', name: 'Halfway Hero', desc: 'Answer 500 questions', test: () => s.attempts.length >= 500 },
+    { id: 'q2500', ic: '🗿', name: 'Iron Will', desc: 'Answer 2500 questions', test: () => s.attempts.length >= 2500 },
+
+    /* ── streaks & consistency ── */
+    { id: 'run50', ic: '🌠', name: 'Untouchable', desc: '50 correct in a row', test: () => s.bestStreak >= 50 },
+    { id: 'day14', ic: '📆', name: 'Fortnight', desc: 'Practise 14 days in a row', test: () => dayStreak() >= 14 },
+    { id: 'day30', ic: '🎖️', name: 'Month of Grind', desc: 'Practise 30 days in a row', test: () => dayStreak() >= 30 },
+    {
+      id: 'goal7', ic: '✅', name: 'Goal Getter', desc: 'Hit your daily goal 7 times',
+      test: () => Object.values(s.days).filter(n => n >= (s.cfg.goal || 20)).length >= 7
+    },
+    {
+      id: 'century', ic: '💯', name: 'Century Day', desc: '100 questions in a single day',
+      test: () => Object.values(s.days).some(n => n >= 100)
+    },
+
+    /* ── accuracy ── */
+    {
+      id: 'perfect20', ic: '🎯', name: 'Flawless Twenty', desc: '20 in a row without a miss',
+      test: () => s.bestStreak >= 20
+    },
+    {
+      id: 'hardAcc', ic: '🧗', name: 'Thin Air', desc: '80%+ on Hard over 50 questions',
+      test: () => {
+        const a = s.attempts.filter(x => x.f === 2);
+        return a.length >= 50 && a.reduce((x, y) => x + y.c, 0) / a.length >= 0.8;
+      }
+    },
+    {
+      id: 'comeback', ic: '🔁', name: 'Comeback', desc: 'Follow 3 straight misses with 10 straight hits',
+      test: () => {
+        let miss = 0;
+        for (let i = 0; i < s.attempts.length; i++) {
+          if (!s.attempts[i].c) { miss++; continue; }
+          if (miss >= 3) {
+            let run = 0, j = i;
+            while (j < s.attempts.length && s.attempts[j].c) { run++; j++; }
+            if (run >= 10) return true;
+            i = j;
+          }
+          miss = 0;
+        }
+        return false;
+      }
+    },
+
+    /* ── breadth ── */
+    {
+      id: 'allDomains', ic: '🧭', name: 'Well Rounded', desc: 'Practise all 8 domains',
+      test: () => new Set(s.attempts.map(a => a.d)).size >= 8
+    },
+    {
+      id: 'skill20', ic: '🔬', name: 'Specialist', desc: '20+ questions in 10 different skills',
+      test: () => groupStats(null, 'k').filter(g => g.n >= 20).length >= 10
+    },
+    {
+      id: 'twoMasters', ic: '⚖️', name: 'Balanced', desc: '80%+ in both sections over 100 each',
+      test: () => ['rw', 'math'].every(sub => {
+        const a = forSubject(sub);
+        return a.length >= 100 && a.reduce((x, y) => x + y.c, 0) / a.length >= 0.8;
+      })
+    },
+
+    /* ── test day ── */
+    { id: 'score1500', ic: '🌟', name: '1500 Club', desc: 'Score 1500+ on a full test', test: () => s.tests.some(t => t.score >= 1500) },
+    {
+      id: 'improve100', ic: '📈', name: 'Big Jump', desc: 'Improve 100+ points between full tests',
+      test: () => s.tests.some((t, i) => i > 0 && t.score - s.tests[i - 1].score >= 100)
+    },
+
+    /* ── habits ── */
+    { id: 'backup', ic: '💾', name: 'Safekeeping', desc: 'Save your progress to a file', test: () => !!s.everExported },
+    {
+      id: 'night', ic: '🌙', name: 'Night Owl', desc: 'Answer a question after midnight',
+      test: () => s.attempts.some(a => { const h = new Date(a.t).getHours(); return h >= 0 && h < 5; })
+    },
+    {
+      id: 'early', ic: '🌅', name: 'Early Bird', desc: 'Answer a question before 7am',
+      test: () => s.attempts.some(a => { const h = new Date(a.t).getHours(); return h >= 5 && h < 7; })
+    }
   ];
 
   function checkBadges() {
@@ -243,10 +344,11 @@ const Store = (() => {
   function reset() { s = defaults(); localStorage.removeItem(KEY); }
 
   return {
-    load, save, state, today, DIFFS, BADGES,
+    load, save, state, today, DIFFS, BADGES, replace,
     levelInfo, dayStreak, record, recordTest, summary, groupStats,
     accuracyTrend, dailyCounts, difficultyMix, checkBadges, reset,
     onSaveError(fn) { onSaveError = fn; },
+    onChange(fn) { changeSubs.push(fn); },
     set(patch) { Object.assign(s, patch); save(); }
   };
 })();
