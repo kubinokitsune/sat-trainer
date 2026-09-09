@@ -276,7 +276,7 @@ Open **Settings → Save file**:
 
 | | |
 |---|---|
-| **Link a save file…** | Chrome and Edge only. Pick a file once and every answer is written to it as you go. |
+| **Link a save file…** | Chrome and Edge only. Pick a file once and every answer is written to it as you go — and the link is picked back up when you reload. |
 | **Download a copy** | Works everywhere. Saves `save.js` through the normal download flow. |
 | **Load from file…** | Restore from any save file you have. |
 
@@ -294,11 +294,17 @@ Restoring never overwrites silently. If the file is older than what is already i
 the browser, the app says so and shows both timestamps and question counts before
 you decide.
 
-> Browsers won't let a page re-open a file on its own for security reasons, so
-> the write link lasts for the session and you re-click it next time. The
-> `data/save.js` autoload is what covers you if you forget — a page opened from
-> `file://` cannot use IndexedDB in Chrome, which is where a lasting file handle
-> would otherwise be kept.
+### Does it stay linked?
+
+Yes. **Reloading the page keeps the link** — the file handle is remembered, so
+the app reconnects on its own and carries on writing without asking.
+
+The one exception is a full browser restart: browsers may drop the *write
+permission* even though the file is still remembered. When that happens you get
+a one-click **allow writing again** on the dashboard rather than having to find
+the file a second time. And if you keep the file at `data/save.js`, your
+progress loads on launch regardless of whether writing has been re-permitted
+yet.
 
 ---
 

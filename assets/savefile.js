@@ -11,11 +11,12 @@
                that file, and from then on every answer is mirrored to
                disk as you go.
 
-   Why not just remember the file forever? A page opened from file://
-   cannot use IndexedDB in Chrome, and a file handle can only be
-   persisted there — so the handle lasts for the session. The autoload
-   path is what makes progress survive across launches, and re-linking
-   is one click.
+   The link survives a refresh. A file handle cannot be put in
+   localStorage — it is not JSON — but it can be structured-cloned into
+   IndexedDB, which does work on file:// in a real browser. So the
+   handle is stored there and picked back up on the next load; only a
+   full browser restart can drop the write permission, and that costs
+   one click rather than re-picking the file.
    ══════════════════════════════════════════════════════════════════ */
 const SaveFile = (() => {
   const SUGGESTED = 'save.js';
@@ -24,14 +25,110 @@ const SaveFile = (() => {
 
   let handle = null;          // FileSystemFileHandle while linked
   let linkedName = null;
+  let pendingHandle = null;   // remembered, but needs a click to re-permit
   let queued = false, writing = false, timer = null;
   let statusSubs = [];
 
   const supported = PICKER;
   const isLinked = () => !!handle;
-  const name = () => linkedName;
+  const name = () => linkedName || (pendingHandle && pendingHandle.name) || null;
+  /** A file is remembered but the browser wants a gesture before writing. */
+  const needsReconnect = () => !handle && !!pendingHandle;
 
   function emit() { for (const f of statusSubs) { try { f(); } catch (e) { } } }
+
+  /* ── remembering the handle ────────────────────────────────────────
+     Everything here fails soft: if IndexedDB is unavailable or simply
+     never answers (it hangs in some headless builds), the app carries
+     on with a session-only link rather than stalling on boot. */
+  const DB_NAME = 'sat_trainer', STORE = 'handles', KEY = 'saveFile';
+  const IDB_TIMEOUT = 3000;
+
+  function openDB() {
+    return new Promise(resolve => {
+      let settled = false;
+      const done = v => { if (!settled) { settled = true; resolve(v); } };
+      setTimeout(() => done(null), IDB_TIMEOUT);
+      try {
+        const req = indexedDB.open(DB_NAME, 1);
+        req.onupgradeneeded = e => {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains(STORE)) db.createObjectStore(STORE);
+        };
+        req.onsuccess = e => done(e.target.result);
+        req.onerror = () => done(null);
+        req.onblocked = () => done(null);
+      } catch (e) { done(null); }
+    });
+  }
+
+  function idbPut(value) {
+    return openDB().then(db => {
+      if (!db) return false;
+      return new Promise(resolve => {
+        try {
+          const tx = db.transaction(STORE, 'readwrite');
+          tx.objectStore(STORE).put(value, KEY);
+          tx.oncomplete = () => { db.close(); resolve(true); };
+          tx.onerror = () => { db.close(); resolve(false); };
+        } catch (e) { try { db.close(); } catch (x) { } resolve(false); }
+      });
+    }).catch(() => false);
+  }
+
+  function idbGet() {
+    return openDB().then(db => {
+      if (!db) return null;
+      return new Promise(resolve => {
+        try {
+          const tx = db.transaction(STORE, 'readonly');
+          const rq = tx.objectStore(STORE).get(KEY);
+          rq.onsuccess = () => { const v = rq.result; db.close(); resolve(v || null); };
+          rq.onerror = () => { db.close(); resolve(null); };
+        } catch (e) { try { db.close(); } catch (x) { } resolve(null); }
+      });
+    }).catch(() => null);
+  }
+
+  const idbClear = () => idbPut(undefined);
+
+  /** Re-attach to the file linked in an earlier visit.
+   *  Returns 'linked' (writing again), 'needs-click', or 'none'. */
+  async function restore() {
+    if (!PICKER) return 'none';
+    if (handle) return 'linked';        // already attached; nothing to do
+    let h = null;
+    try { h = await idbGet(); } catch (e) { h = null; }
+    if (!h || typeof h.queryPermission !== 'function') return 'none';
+    let perm = 'prompt';
+    try { perm = await h.queryPermission({ mode: 'readwrite' }); } catch (e) { perm = 'denied'; }
+    if (perm === 'granted') {
+      handle = h;
+      linkedName = h.name;
+      pendingHandle = null;
+      emit();
+      return 'linked';
+    }
+    if (perm === 'denied') { idbClear(); return 'none'; }
+    pendingHandle = h;          // permission survives only within a session
+    emit();
+    return 'needs-click';
+  }
+
+  /** Ask for permission again — must be called from a click. */
+  async function reconnect() {
+    if (!pendingHandle) return false;
+    let perm = 'denied';
+    try { perm = await pendingHandle.requestPermission({ mode: 'readwrite' }); }
+    catch (e) { perm = 'denied'; }
+    if (perm !== 'granted') return false;
+    handle = pendingHandle;
+    linkedName = handle.name;
+    pendingHandle = null;
+    await writeNow();
+    emit();
+    return true;
+  }
 
   /* ── serialise ─────────────────────────────────────────────────── */
   function serialize() {
@@ -71,7 +168,8 @@ const SaveFile = (() => {
       Store.state().everExported = true;
     } catch (e) {
       console.warn('auto-save failed', e);
-      handle = null; linkedName = null;
+      handle = null; linkedName = null; pendingHandle = null;
+      idbClear();
       emit();
       if (typeof onError === 'function') onError(e);
     } finally {
@@ -98,6 +196,7 @@ const SaveFile = (() => {
     });
     handle = h;
     linkedName = h.name;
+    await idbPut(h);        // so a refresh picks it straight back up
     await writeNow();
     emit();
     return h.name;
@@ -114,7 +213,8 @@ const SaveFile = (() => {
     // keep writing to it if we are allowed to
     try {
       if (await h.requestPermission({ mode: 'readwrite' }) === 'granted') {
-        handle = h; linkedName = h.name;
+        handle = h; linkedName = h.name; pendingHandle = null;
+        idbPut(h);
       }
     } catch (e) { /* read-only is fine */ }
     emit();
@@ -166,9 +266,20 @@ const SaveFile = (() => {
 
   Store.onChange(schedule);
 
+  // Writes are debounced by a second or so, and browsers throttle timers in a
+  // background tab — so flush the moment the page is hidden or closed, or the
+  // last answer before you switch away never reaches the file.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden && handle) { clearTimeout(timer); writeNow(); }
+  });
+  window.addEventListener('pagehide', () => {
+    if (handle) { clearTimeout(timer); writeNow(); }
+  });
+
   return {
-    supported, isLinked, name, serialize, parse,
+    supported, isLinked, name, needsReconnect, serialize, parse,
     link, openExisting, download, upload, exportNow, importNow,
+    restore, reconnect,
     flush: writeNow,
     onStatus(fn) { statusSubs.push(fn); },
     onError(fn) { onError = fn; }

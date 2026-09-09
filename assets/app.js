@@ -969,6 +969,17 @@ function refreshHome() {
     if (SaveFile.isLinked()) {
       sv.className = 'save-state on';
       sv.innerHTML = `💾 Auto-saving to <b>${esc(SaveFile.name())}</b>`;
+    } else if (SaveFile.needsReconnect()) {
+      // remembered across a browser restart, but the browser wants a click
+      sv.className = 'save-state warn';
+      sv.innerHTML = `💾 Save file <b>${esc(SaveFile.name())}</b> is remembered — ` +
+        '<button class="lnk" id="saveReconnect">allow writing again</button>';
+      const b = $('#saveReconnect');
+      if (b) b.onclick = async () => {
+        if (await SaveFile.reconnect()) toast('Auto-saving to ' + SaveFile.name());
+        else toast('Permission was not granted', 'bad');
+        refreshHome();
+      };
     } else if (!all.n) {
       sv.className = 'save-state';
       sv.innerHTML = '';
@@ -1354,13 +1365,20 @@ function paintSaveBox() {
   const box = $('#sfBox');
   if (!box) return;
   const linked = SaveFile.isLinked();
+  const pending = SaveFile.needsReconnect();
   let h = '<div class="sf-state ' + (linked ? 'on' : '') + '">' +
     (linked
       ? `<b>💾 Auto-saving to ${esc(SaveFile.name())}</b>` +
-        '<span>Every answer is written to that file as you go.</span>'
-      : '<b>⚠️ Not linked to a file</b>' +
-        '<span>Progress is only in this browser right now.</span>') +
+        '<span>Every answer is written to that file as you go, and the link ' +
+        'is picked back up when you reload.</span>'
+      : pending
+        ? `<b>💾 ${esc(SaveFile.name())} is remembered</b>` +
+          '<span>Your browser wants a click before it writes to it again.</span>'
+        : '<b>⚠️ Not linked to a file</b>' +
+          '<span>Progress is only in this browser right now.</span>') +
     '</div><div class="sf-btns">';
+  if (pending)
+    h += '<button class="btn small primary" id="sfReconnect">Allow writing again</button>';
   if (SaveFile.supported)
     h += `<button class="btn small ${linked ? 'ghost' : 'primary'}" id="sfLink">` +
       (linked ? 'Change file…' : 'Link a save file…') + '</button>';
@@ -1374,7 +1392,12 @@ function paintSaveBox() {
     'inside this folder and the app restores it by itself next time you open it.</div>';
   box.innerHTML = h;
 
-  const link = $('#sfLink'), imp = $('#sfImp'), dl = $('#sfDl');
+  const link = $('#sfLink'), imp = $('#sfImp'), dl = $('#sfDl'), rec = $('#sfReconnect');
+  if (rec) rec.onclick = async () => {
+    if (await SaveFile.reconnect()) toast('Auto-saving to ' + SaveFile.name());
+    else toast('Permission was not granted', 'bad');
+    paintSaveBox(); refreshHome();
+  };
   if (link) link.onclick = async () => {
     try { const n = await SaveFile.link(); toast('Auto-saving to ' + n); paintSaveBox(); refreshHome(); }
     catch (e) { if (e && e.name !== 'AbortError') toast('Could not link that file', 'bad'); }
@@ -1908,6 +1931,12 @@ function boot() {
   SaveFile.onError(() => toast('Lost the link to the save file — re-link it in Settings', 'bad'));
   wire();
   autoloadSave();
+  // Pick the linked save file back up, so a refresh does not silently stop
+  // writing to disk. Fire and forget: it must never hold up the first paint.
+  SaveFile.restore().then(r => {
+    if (r === 'linked') toast('💾 Reconnected to ' + SaveFile.name());
+    refreshHome();
+  }).catch(() => { });
   refreshHome();
   show('home');
   $('#boot').style.display = 'none';

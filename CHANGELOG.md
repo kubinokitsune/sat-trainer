@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-09-09
+
+### Fixed
+
+- **A linked save file no longer un-links when you reload.** The file handle is
+  now remembered in IndexedDB and picked back up on the next load, so the app
+  reconnects on its own and keeps writing without asking.
+
+  1.1.0 shipped this as session-only on the belief that a page served from
+  `file://` cannot use IndexedDB in Chrome. That was wrong. The probe behind it
+  ran in headless Chrome, where IndexedDB never completes an open on *any*
+  origin; in a real browser it works on `file://` exactly as it does over http.
+
+  A full browser restart can still drop the write *permission* — that part is
+  the browser's call, not ours. Instead of silently going quiet, the dashboard
+  and Settings now offer a one-click **allow writing again** on the file already
+  remembered, so you never have to hunt for it a second time.
+- **The last answer before you close the tab now reaches the file.** Writes are
+  debounced by ~1.2s and browsers throttle timers in a hidden tab, so a quick
+  close could drop the most recent answer. Pending writes are flushed on
+  `visibilitychange` and `pagehide`.
+
+
 ## [1.3.0] - 2026-09-09
 
 Scoring and question selection now both run on item response theory, which is
