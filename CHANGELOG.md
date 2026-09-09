@@ -4,6 +4,29 @@ All notable changes to this project are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.2] - 2026-09-09
+
+### Fixed
+
+- **The default profile name was a real person's.** Anyone who cloned the repo
+  started as "Felipe", both on the dashboard and on the test footer. The default
+  is now "Student", editable in Settings as before.
+
+### Changed
+
+- Screenshots redone across the whole app, from a generated demo profile rather
+  than anyone's real progress: dashboard, the Bluebook-style test interface, a
+  scored practice test, the custom drill picker, analytics, the ability/pacing/
+  mistake-bank screens, and badges.
+
+  The question view is still deliberately absent — a screenshot of it would
+  reproduce College Board question content. The test-interface shot uses the
+  end-of-module review screen, which is the real chrome with no question on it.
+
+  Re-encoded as palette PNGs at 1860px: seven images for 1.07 MB, less than the
+  three they replaced.
+
+
 ## [1.4.1] - 2026-09-09
 
 ### Fixed

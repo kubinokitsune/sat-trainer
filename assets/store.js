@@ -9,7 +9,7 @@ const Store = (() => {
 
   const defaults = () => ({
     v: 1,
-    name: 'Felipe',
+    name: 'Student',
     savedAt: 0,
     xp: 0,
     attempts: [],          // {t,id,s,d,k,f,c,ms}

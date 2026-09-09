@@ -57,15 +57,56 @@ Works in Chrome, Edge, Firefox and Safari on desktop.
 
 ## Screenshots
 
+### The dashboard
+
+Level and XP, day streak, daily goal, per-section level and accuracy, the review
+queue, and a warning when progress has not been backed up to a file.
+
 ![The dashboard](docs/dashboard.png)
+
+### The test interface
+
+Modelled on Bluebook: module name, a hideable countdown, annotation, the question
+navigator with answered and flagged states, and the end-of-module review screen.
+
+![The Bluebook-style test interface](docs/test-interface.png)
+
+### Scored like the real thing
+
+Section scores from the ability your answers imply, with the routing and the
+guessing floor spelled out.
+
+![Full practice test results](docs/results.png)
+
+### Custom drills
+
+Pick individual skills from a live topic tree with counts, set a difficulty and a
+question count, and optionally a clock sized to that count at real test pace.
+
+![The custom drill picker](docs/custom-drill.png)
+
+### Progress and analytics
+
+Accuracy over time, questions per day, accuracy by difficulty, and mastery by
+domain.
 
 ![Progress and analytics](docs/analytics.png)
 
-![Pacing and the mistake bank](docs/study-loop.png)
+### Ability, pacing and the mistake bank
 
-*No screenshots of the question view are included, because those would reproduce
-College Board question content. Run it yourself to see the Bluebook-style
-interface.*
+Where the picker is aiming and what it is worth on the 200-800 scale; median
+think time against real test pace, per skill; and every question you have missed
+and not yet fixed.
+
+![Ability, pacing and the mistake bank](docs/study-loop.png)
+
+### Badges
+
+![Badges](docs/badges.png)
+
+> The question view itself is not shown anywhere here, because a screenshot of it
+> would reproduce College Board question content. Everything above is the app's
+> own interface. Run it with your own export to see questions in place.
 
 ---
 
