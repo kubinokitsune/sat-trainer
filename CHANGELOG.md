@@ -4,6 +4,22 @@ All notable changes to this project are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-09-09
+
+### Fixed
+
+- **GitHub showed the licence as "Other" instead of MIT.** GitHub detects
+  licences with `licensee`, which strips the copyright line, normalises
+  whitespace, and needs a 98% match against the canonical text. LICENSE carried
+  the MIT text verbatim but with a ~630-character note appended about SAT content
+  and trademarks, which put it at 76% - under the threshold, so it fell back to
+  "Other".
+
+  LICENSE is now canonical MIT and nothing else (100% match). The note it used to
+  carry moved to NOTICE.md, which also covers the Desmos embed, and the README
+  links to it.
+
+
 ## [1.4.2] - 2026-09-09
 
 ### Fixed

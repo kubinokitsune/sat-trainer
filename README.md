@@ -506,6 +506,7 @@ sat-trainer/
 ├─ docs/                 screenshots used by this README
 ├─ CHANGELOG.md
 ├─ CONTRIBUTING.md
+├─ NOTICE.md             what the licence does not cover
 ├─ requirements.txt
 └─ LICENSE
 ```
@@ -525,6 +526,7 @@ See [CHANGELOG.md](CHANGELOG.md) for what changed in each release.
 
 Code is [MIT licensed](LICENSE) — use it however you like.
 
-The licence covers the code only. SAT question content belongs to the College
-Board and is not distributed here. SAT® is a trademark registered by the College
-Board, which is not affiliated with and does not endorse this project.
+The licence covers **the code only**. SAT question content belongs to the College
+Board and is not distributed here; see [NOTICE.md](NOTICE.md) for what that means
+in practice, the trademark position, and the one third-party service the app
+touches.
