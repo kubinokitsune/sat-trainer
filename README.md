@@ -39,7 +39,7 @@ No install. No server. No account. No data leaves your computer.
 
 | | |
 |---|---|
-| **Adaptive difficulty** | Three right in a row moves you up Easy → Medium → Hard; two wrong eases off. Both thresholds are configurable. |
+| **Adaptive difficulty** | Every question has a difficulty and so do you; your ability moves further for a hard question than an easy one, and the picker aims just below it. Tracked per skill, and tunable. |
 | **Real test interface** | Two-pane Reading and Writing layout, Mark for Review, ABC answer eliminator, highlighting, question navigator, hideable timer — modelled on Bluebook. |
 | **Full practice test** | All four modules, 98 questions, the 10-minute break, and a second module routed by your first-module performance. Scored the way the real one is - IRT, difficulty-weighted, guessing discounted. |
 | **Math tools** | The Desmos graphing calculator and the official SAT reference sheet, available exactly where the real test gives them to you. |
@@ -157,7 +157,8 @@ would be worth across a full section.
 
 **Adaptive practice** — endless questions with immediate feedback and the full
 official explanation after every answer, including why each wrong choice is wrong.
-This is the mode that adjusts difficulty as you go.
+This is the mode that tracks your ability, and about a third of it is spent back on
+questions you previously missed.
 
 **Timed module** — one real module against the real clock: 27 questions in
 32 minutes for Reading and Writing, 22 in 35 minutes for Math. No feedback until
@@ -373,9 +374,10 @@ See [Keeping your progress safe](#keeping-your-progress-safe). Save the file as
 the folder to.
 
 **My progress disappeared**
-Progress lives in browser `localStorage`, so it's per-browser and per-machine, and
-private windows discard it on close. If the browser blocks local storage entirely,
-the app tells you rather than losing work silently.
+Progress lives in browser `localStorage` by default, so it is per-browser and
+per-machine, and private windows discard it on close. Link a save file (or keep
+one at `data/save.js`) and none of that can lose it. If the browser blocks local
+storage entirely, the app says so rather than losing work silently.
 
 **Stray `*-<name>.png` files keep appearing in `data/img`**
 You've put the project inside a cloud-synced folder (OneDrive, Dropbox, iCloud).
@@ -457,7 +459,9 @@ sat-trainer/
 │  └─ patch_missing.py   recovers older-format questions
 ├─ question-banks/       ← your PDF exports go here (gitignored)
 ├─ data/                 ← generated question data + save.js (gitignored)
+├─ docs/                 screenshots used by this README
 ├─ CHANGELOG.md
+├─ CONTRIBUTING.md
 ├─ requirements.txt
 └─ LICENSE
 ```
