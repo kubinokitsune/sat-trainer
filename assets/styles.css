@@ -536,3 +536,8 @@ mark.hl{background:#ffe680;padding:1px 0}
 .abl-head{display:flex;align-items:center;gap:9px;margin-bottom:9px}
 .abl-head b{font-size:14.5px}
 .abl-sc{margin-left:auto;font-size:19px;font-weight:800;color:var(--blue)}
+/* the review banner only looks actionable when something is actually due */
+.review-cta{background:#fbfcfe;border-color:var(--line)}
+.review-cta .rv-l b{color:var(--ink-2)}
+.review-cta.ready{background:#fff8ec;border-color:#f0d59a}
+.review-cta.ready .rv-l b{color:#7a5200}

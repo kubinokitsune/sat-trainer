@@ -4,6 +4,31 @@ All notable changes to this project are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-09-09
+
+### Fixed
+
+- **The dashboard now notices when a review falls due.** The review banner was
+  only redrawn by `refreshHome()`, which runs when you answer or navigate — so
+  sitting on the dashboard, nothing ever noticed a question's due time passing
+  and you had to reload before "Review now" appeared. The Progress page looked
+  right because it rebuilds whenever you open it.
+
+  The dashboard now wakes itself at the exact moment the next review is due, and
+  re-checks at least every 30 seconds. Because browsers throttle timers in a
+  background tab, it also refreshes immediately on `visibilitychange` and window
+  focus, so a tab left open is correct the instant you look at it.
+
+### Changed
+
+- The review banner reads sensibly when nothing is due yet — "N questions
+  waiting to come back · next in 12 min" instead of "0 questions ready for
+  review" — and is only amber when there is actually something to do.
+- Corrected the README: generated data is ~110 MB, not ~100 MB, and the
+  difficulty target's range (50-88%) is now stated where the setting is
+  described.
+
+
 ## [1.4.0] - 2026-09-09
 
 ### Fixed

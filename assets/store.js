@@ -294,6 +294,19 @@ const Store = (() => {
     return out.sort((a, b) => (b.miss - a.miss) || (a.due - b.due));
   }
 
+  /** When the next not-yet-due review comes up, or null if none are pending.
+   *  Lets the dashboard wake itself at exactly the right moment instead of
+   *  waiting for the next navigation to notice. */
+  function nextDueAt(now) {
+    now = now || Date.now();
+    let soonest = null;
+    for (const id in s.review) {
+      const d = s.review[id].due;
+      if (d > now && (soonest === null || d < soonest)) soonest = d;
+    }
+    return soonest;
+  }
+
   const reviewCounts = () => ({
     open: Object.keys(s.review).length,
     due: dueReviews(null).length,
@@ -604,7 +617,7 @@ const Store = (() => {
     load, save, state, today, DIFFS, BADGES, replace,
     levelInfo, dayStreak, record, recordTest, summary, groupStats,
     accuracyTrend, dailyCounts, difficultyMix, checkBadges, reset,
-    dueReviews, openMisses, reviewCounts, pacing, pacingBy,
+    dueReviews, openMisses, reviewCounts, nextDueAt, pacing, pacingBy,
     ability, targetB, estimateTheta, scaleScore, thetaToScore, bOf, aOf, cOf,
     pCorrect, levelFromTheta,
     onSaveError(fn) { onSaveError = fn; },

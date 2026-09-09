@@ -906,6 +906,39 @@ function wireReviewToggles(root) {
 }
 
 /* ══════════════════ home ══════════════════ */
+/* ══════════════════ review clock ══════════════════
+   A question falls due at a wall-clock time, so nothing in the app is
+   otherwise going to notice while you sit on the dashboard. Wake up at the
+   moment the next one is due — and no less often than every 30s, because
+   browsers throttle timers in a background tab and the clock can jump. */
+let reviewTimer = null;
+let lastDueSeen = null;
+
+function untilNextDue() {
+  const at = Store.nextDueAt();
+  if (!at) return 'a while';
+  const mins = Math.max(1, Math.round((at - Date.now()) / 60000));
+  if (mins < 60) return mins + ' min';
+  const hrs = Math.round(mins / 60);
+  if (hrs < 48) return hrs + ' h';
+  return Math.round(hrs / 24) + ' d';
+}
+
+function armReviewWatch(dueNow) {
+  clearTimeout(reviewTimer);
+  // tell the user the moment something becomes available, but only on the
+  // transition, so it never nags
+  if (lastDueSeen === 0 && dueNow > 0 && $('#screen-home').classList.contains('on')) {
+    toast('🔁 ' + dueNow + ' question' + (dueNow === 1 ? '' : 's') + ' ready for review');
+  }
+  lastDueSeen = dueNow;
+
+  const at = Store.nextDueAt();
+  if (!at) return;                       // nothing pending; nothing to wait for
+  const wait = Math.min(30000, Math.max(1000, at - Date.now() + 250));
+  reviewTimer = setTimeout(refreshHome, wait);
+}
+
 function refreshHome() {
   const s = Store.state();
   const li = Store.levelInfo(s.xp);
@@ -953,14 +986,20 @@ function refreshHome() {
   if (cta) {
     cta.hidden = !rc.open;
     if (rc.open) {
-      cta.innerHTML = '<div class="rv-l"><b>🔁 ' + rc.due + ' question' +
-        (rc.due === 1 ? '' : 's') + ' ready for review</b><span>' + rc.open +
+      cta.classList.toggle('ready', rc.due > 0);
+      const head = rc.due
+        ? '🔁 ' + rc.due + ' question' + (rc.due === 1 ? '' : 's') + ' ready for review'
+        : '🔁 ' + rc.open + ' question' + (rc.open === 1 ? '' : 's') + ' waiting to come back';
+      cta.innerHTML = `<div class="rv-l"><b>${head}</b><span>${rc.open}` +
         ' still open · ' + rc.fixed + ' fixed for good</span></div>' +
         (rc.due ? '<button class="btn small primary" id="rvGo">Review now</button>'
-                : '<span class="rv-wait">Next one is not due yet</span>');
+                : `<span class="rv-wait">next in ${untilNextDue()}</span>`);
       const g = $('#rvGo');
       if (g) g.onclick = () => startReview(null);
     }
+    // Reviews come due on a clock, so the dashboard has to notice by itself
+    // instead of waiting for the next navigation.
+    armReviewWatch(rc.due);
   }
 
   // save-file state, so an unbacked-up streak is visible without digging
@@ -1937,6 +1976,15 @@ function boot() {
     if (r === 'linked') toast('💾 Reconnected to ' + SaveFile.name());
     refreshHome();
   }).catch(() => { });
+
+  // A background tab has its timers throttled to about once a second, so the
+  // review clock can be well behind by the time you come back to it.
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && $('#screen-home').classList.contains('on')) refreshHome();
+  });
+  window.addEventListener('focus', () => {
+    if ($('#screen-home').classList.contains('on')) refreshHome();
+  });
   refreshHome();
   show('home');
   $('#boot').style.display = 'none';

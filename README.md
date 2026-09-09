@@ -112,7 +112,7 @@ py -3 tools/extract.py
 
 This takes **10–20 minutes** for the full bank, because every Math question is
 rendered from the PDF (see [under the hood](#how-it-works-under-the-hood)).
-You'll see progress as it goes. It produces roughly **100 MB** in `data/`.
+You'll see progress as it goes. It produces roughly **110 MB** in `data/`.
 
 ### 5. Open the app
 
@@ -134,10 +134,10 @@ one, and further early on than once it has settled.
                   about 70% right and still get stretched
 ```
 
-That target is adjustable under **Settings** — drop it and the mix gets harder,
-raise it and you stay on ground you have covered. Ability is tracked per section
-*and* per skill, with thin skills shrunk toward your section average so one bad
-run on Circles doesn't crater the whole thing.
+That target is adjustable under **Settings** (50–88%, default 70%) — drop it and
+the mix gets harder, raise it and you stay on ground you have covered. Ability is
+tracked per section *and* per skill, with thin skills shrunk toward your section
+average so one bad run on Circles doesn't crater the whole thing.
 
 Practice then prefers questions you have never seen, biases toward your weakest
 skills, and reserves about a third of the run for [questions you previously
@@ -234,8 +234,11 @@ and it drops back to the front with its miss count going up. Survive the whole
 ladder and it is retired as **fixed**.
 
 About a third of an adaptive practice run is spent on questions that are due,
-each marked **🔁 Review** so you know why it came back. The dashboard tells you
-when something is waiting.
+each marked **🔁 Review** so you know why it came back.
+
+The dashboard watches the clock, so the moment something falls due the banner
+turns amber and offers **Review now** by itself — no reloading, and no waiting
+until you next navigate. Returning to a tab you left open refreshes it at once.
 
 > This closed a real hole. The picker prefers questions you have never seen, and
 > with banks of ~1,800 questions per section there are always unseen ones — so
