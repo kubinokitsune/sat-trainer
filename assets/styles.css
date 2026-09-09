@@ -517,3 +517,22 @@ mark.hl{background:#ffe680;padding:1px 0}
 .pace-tbl th:nth-child(2),.pace-tbl th:nth-child(3),.pace-tbl th:nth-child(4){text-align:right}
 .pace-tbl td.over{color:#b42318;font-weight:600}
 .pace-tbl td.under{color:#0d7a4f;font-weight:600}
+
+/* ══════════════════ v1.3: ability estimate + SAT-style scoring ══════════════════ */
+.score-note{background:#f7f9fc;border:1px solid var(--line);border-radius:12px;
+  padding:14px 17px;margin:14px 0 0}
+.score-note b{font-size:13px}
+.score-note p{font-size:13px;line-height:1.65;color:#48505f;margin:7px 0 0}
+.score-caveat{color:var(--muted);font-size:12.5px !important}
+#steppedBox[hidden],#abilityBox[hidden]{display:none}
+.ability-bar{display:flex;align-items:center;gap:10px;margin-top:8px}
+.ability-track{flex:1;height:7px;border-radius:99px;background:var(--line);position:relative}
+.ability-dot{position:absolute;top:50%;width:13px;height:13px;border-radius:50%;
+  background:var(--blue);transform:translate(-50%,-50%);box-shadow:0 0 0 3px #fff}
+.ability-ends{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);
+  margin-top:3px}
+.abl-rows{display:flex;gap:22px;flex-wrap:wrap;margin-top:14px}
+.abl-row{flex:1 1 260px}
+.abl-head{display:flex;align-items:center;gap:9px;margin-bottom:9px}
+.abl-head b{font-size:14.5px}
+.abl-sc{margin-left:auto;font-size:19px;font-weight:800;color:var(--blue)}

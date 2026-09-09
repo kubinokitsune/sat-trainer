@@ -23,7 +23,13 @@ const Store = (() => {
     tests: [],
     review: {},            // id -> {box,due,miss,sub,last} for questions you got wrong
     fixed: 0,              // questions carried all the way through review
-    cfg: { up: 3, down: 2, goal: 20, showTimerPractice: false }
+    ability: { rw: { th: 0, n: 0 }, math: { th: 0, n: 0 } },   // logit scale
+    skillAbility: {},      // skill -> {th,n}
+    cfg: {
+      up: 3, down: 2, goal: 20, showTimerPractice: false,
+      engine: 'ability',   // 'ability' (Rasch) or 'stepped' (3 up / 2 down)
+      target: 0.7          // hit rate the picker aims for
+    }
   });
 
   let s = defaults();
@@ -38,6 +44,8 @@ const Store = (() => {
       s.run = Object.assign(defaults().run, s.run || {});
       if (!s.review || typeof s.review !== 'object') s.review = {};
       s.fixed = s.fixed || 0;
+      s.ability = Object.assign(defaults().ability, s.ability || {});
+      if (!s.skillAbility || typeof s.skillAbility !== 'object') s.skillAbility = {};
     } catch (e) { s = defaults(); }
     return s;
   }
@@ -77,6 +85,8 @@ const Store = (() => {
     if (!Array.isArray(s.tests)) s.tests = [];
     if (!s.review || typeof s.review !== 'object') s.review = {};
     s.fixed = s.fixed || 0;
+    s.ability = Object.assign(defaults().ability, s.ability || {});
+    if (!s.skillAbility || typeof s.skillAbility !== 'object') s.skillAbility = {};
     save();
     return s;
   }
@@ -112,6 +122,124 @@ const Store = (() => {
       if (n > 3650) break;
     }
     return n;
+  }
+
+  /* ── ability estimate (Rasch / 1-parameter IRT) ──────────────────
+     Three discrete levels with a 3-up/2-down counter is coarse: it
+     oscillates on noise and knows nothing about *which* questions you
+     got right. Instead every question carries a difficulty on a logit
+     scale and your ability sits on the same scale, so a Hard question
+     answered right moves you further than an Easy one, and a Hard one
+     missed costs you less than an Easy one.
+
+     P(correct) = 1 / (1 + e^-(theta - b)) — a question at your own
+     level is a coin flip, one logit below it is ~73%. */
+  const B = { Easy: -1.1, Medium: 0.0, Hard: 1.1 };      // difficulty
+  const A = { Easy: 0.8, Medium: 1.0, Hard: 1.35 };      // discrimination
+  const GUESS = 0.25;                 // 1 in 4 on a multiple-choice item
+  const bOf = d => (d in B ? B[d] : 0);
+  const aOf = d => (d in A ? A[d] : 1);
+  // Grid-ins cannot be guessed, four-option questions can be.
+  const cOf = type => (type === 'spr' ? 0 : GUESS);
+
+  /** 3PL: a floor of c, because a blind guess still lands sometimes. */
+  function pCorrect(theta, b, a, c) {
+    a = a === undefined ? 1 : a;
+    c = c === undefined ? 0 : c;
+    return c + (1 - c) / (1 + Math.exp(-a * (theta - b)));
+  }
+
+  const THETA_MIN = -3.8, THETA_MAX = 3.5;
+  const clampT = t => Math.max(THETA_MIN, Math.min(THETA_MAX, t));
+
+  /** Maximum-likelihood ability for a set of scored responses.
+
+     Discrimination is what makes *which* questions you cleared matter: a
+     hard item carries more weight than an easy one, so two students on the
+     same raw score separate if one of them got the hard half. The guessing
+     floor is what stops random answering from scoring like real ability —
+     without it, 25% on four-option questions reads as genuine partial
+     knowledge instead of noise. Solved by Fisher scoring. */
+  function estimateTheta(responses) {
+    if (!responses.length) return 0;
+    const right = responses.reduce((n, r) => n + (r.correct ? 1 : 0), 0);
+    if (right === 0) return THETA_MIN;          // no finite MLE at the rails
+    if (right === responses.length) return THETA_MAX;
+    let th = 0;
+    for (let i = 0; i < 80; i++) {
+      let grad = 0, info = 0;
+      for (const r of responses) {
+        const a = r.a === undefined ? 1 : r.a;
+        const c = r.c === undefined ? 0 : r.c;
+        const p = Math.min(1 - 1e-9, Math.max(1e-9, pCorrect(th, r.b, a, c)));
+        const w = (p - c) / (1 - c);            // chance it was actually known
+        grad += a * ((r.correct ? 1 : 0) - p) * w / p;
+        info += a * a * ((1 - p) / p) * w * w;
+      }
+      if (info < 1e-9) break;
+      const step = Math.max(-1, Math.min(1, grad / info));
+      th += step;
+      if (Math.abs(step) < 1e-5) break;
+    }
+    return clampT(th);
+  }
+
+  const blankAbility = () => ({ th: 0, n: 0 });
+
+  /** Online update after a single answer. Early answers move it fast. */
+  function bumpAbility(rec, b, a, c, correct) {
+    const k = Math.max(0.07, 0.55 / (1 + rec.n / 12));
+    rec.th = clampT(rec.th + k * a * ((correct ? 1 : 0) - pCorrect(rec.th, b, a, c)));
+    rec.n++;
+    return rec;
+  }
+
+  /** Ability for a subject, or for one skill shrunk toward the subject.
+     A skill with few answers should not swing wildly on its own. */
+  function ability(subject, skill) {
+    const sub = s.ability[subject] || blankAbility();
+    if (!skill) return sub.th;
+    const sk = s.skillAbility[skill];
+    if (!sk || !sk.n) return sub.th;
+    const W = 5;                                   // prior weight, in answers
+    return (sk.th * sk.n + sub.th * W) / (sk.n + W);
+  }
+
+  /** The item difficulty that would give the user their target hit rate. */
+  function targetB(subject, skill) {
+    const want = Math.min(0.9, Math.max(0.5, s.cfg.target || 0.7));
+    return ability(subject, skill) - Math.log(want / (1 - want));
+  }
+
+  /** Bucket label for display, from where theta sits between the bands. */
+  function levelFromTheta(th) {
+    if (th < -0.55) return 0;
+    if (th < 0.55) return 1;
+    return 2;
+  }
+
+  /* ── scaled score ────────────────────────────────────────────────
+     The digital SAT is IRT-scored: what you scored depends on which
+     questions you got right, not just how many. So the section score
+     comes from the ability the responses imply, mapped linearly onto
+     the 200-800 scale and rounded to the nearest 10 as the real one is.
+
+     Being routed to the easier second module caps the section, which is
+     also how test day works. The exact conversion is per-form and not
+     published, so this is a faithful model, not the official table. */
+  const SCORE_MID = 510, SCORE_PER_LOGIT = 83, EASY_ROUTE_CAP = 650;
+
+  /** Ability -> the 200-800 scale, rounded to 10 as the real one is. */
+  function thetaToScore(th) {
+    const sc = Math.round((SCORE_MID + SCORE_PER_LOGIT * th) / 10) * 10;
+    return Math.max(200, Math.min(800, sc));
+  }
+
+  function scaleScore(responses, easyRoute) {
+    const th = estimateTheta(responses);
+    let sc = thetaToScore(th);
+    if (easyRoute) sc = Math.min(sc, EASY_ROUTE_CAP);
+    return { score: sc, theta: th };
   }
 
   /* ── spaced repetition on the ones you missed ────────────────────
@@ -230,12 +358,26 @@ const Store = (() => {
     // ── adaptive difficulty ──
     let move = 0;
     if (!opts.noAdapt) {
-      const r = s.run[subject];
-      if (correct) { r.up++; r.down = 0; } else { r.down++; r.up = 0; }
-      if (r.up >= s.cfg.up && s.level[subject] < 2) { s.level[subject]++; r.up = 0; move = 1; }
-      else if (r.up >= s.cfg.up) r.up = 0;
-      if (r.down >= s.cfg.down && s.level[subject] > 0) { s.level[subject]--; r.down = 0; move = -1; }
-      else if (r.down >= s.cfg.down) r.down = 0;
+      const b = bOf(q.difficulty), a = aOf(q.difficulty), c = cOf(q.type);
+      const before2 = s.level[subject];
+      // the ability estimate is kept up to date either way, so switching
+      // engines in Settings never throws away what you have built up
+      s.ability[subject] = bumpAbility(s.ability[subject] || blankAbility(), b, a, c, correct);
+      s.skillAbility[q.skill] = bumpAbility(
+        s.skillAbility[q.skill] ||
+          { th: s.ability[subject].th, n: 0 }, b, a, c, correct);
+
+      if (s.cfg.engine === 'stepped') {
+        const r = s.run[subject];
+        if (correct) { r.up++; r.down = 0; } else { r.down++; r.up = 0; }
+        if (r.up >= s.cfg.up && s.level[subject] < 2) { s.level[subject]++; r.up = 0; }
+        else if (r.up >= s.cfg.up) r.up = 0;
+        if (r.down >= s.cfg.down && s.level[subject] > 0) { s.level[subject]--; r.down = 0; }
+        else if (r.down >= s.cfg.down) r.down = 0;
+      } else {
+        s.level[subject] = levelFromTheta(s.ability[subject].th);
+      }
+      move = Math.sign(s.level[subject] - before2);
     }
 
     const review = schedule(q, subject, correct);
@@ -463,6 +605,8 @@ const Store = (() => {
     levelInfo, dayStreak, record, recordTest, summary, groupStats,
     accuracyTrend, dailyCounts, difficultyMix, checkBadges, reset,
     dueReviews, openMisses, reviewCounts, pacing, pacingBy,
+    ability, targetB, estimateTheta, scaleScore, thetaToScore, bOf, aOf, cOf,
+    pCorrect, levelFromTheta,
     onSaveError(fn) { onSaveError = fn; },
     onChange(fn) { changeSubs.push(fn); },
     set(patch) { Object.assign(s, patch); save(); }

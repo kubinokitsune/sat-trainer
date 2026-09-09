@@ -4,6 +4,49 @@ All notable changes to this project are documented here.
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-09-09
+
+Scoring and question selection now both run on item response theory, which is
+what the digital SAT itself uses.
+
+### Added
+
+- **Ability estimate replaces the stepped difficulty counter.** Every question
+  carries a difficulty and a discrimination; your ability sits on the same scale
+  and moves after each answer - further for a hard question than an easy one,
+  and further early on than once it has settled. Tracked per section *and* per
+  skill, with thin skills shrunk toward the section average so one bad run does
+  not swing everything.
+
+  The picker then aims a little below your ability, so you get roughly the share
+  right that you asked for and are still stretched. That target is a new
+  **Settings** slider (50-88%, default 70%).
+
+  The old behaviour is still available as **Settings > Stepped**, thresholds and
+  all. The ability estimate keeps updating underneath either engine, so
+  switching never throws it away.
+- **Where you are working**, on the Progress page: your current ability per
+  section, the band it falls in, and what that pace would be worth across a full
+  section.
+
+### Changed
+
+- **The full test is scored the way the real one is.** It was raw-correct over
+  total against a fixed curve. It is now the ability your responses imply:
+
+  - *Which* questions you cleared matters, not only how many - two people on the
+    same raw score usually land 10-20 points apart.
+  - Multiple-choice questions carry a 1-in-4 guessing floor, so answering a
+    section at random now scores near 200 instead of in the middle. On a
+    98-question run of pure guesses the old model returned 770; it now returns
+    400.
+  - Module 2 routing is decided by the ability module 1 implies rather than raw
+    accuracy, and the easier route caps the section at 650.
+
+  The results screen explains all of this, and says plainly that the conversion
+  is a model rather than the College Board's own unpublished table.
+
+
 ## [1.2.0] — 2026-09-08
 
 The theme of this release is closing the loop: the app now brings back what

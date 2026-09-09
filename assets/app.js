@@ -85,6 +85,25 @@ function pool(subject, filt) {
   return p;
 }
 
+/** Difficulty band to serve next, sampled around the user's ability.
+ *  The bank only has three bands, so instead of snapping to the nearest
+ *  one we weight all three by how close they sit to the difficulty that
+ *  would give the target hit rate. Ability drifts smoothly, so the mix
+ *  shifts gradually rather than flipping on a single lucky answer. */
+function pickDifficulty(subject, skill) {
+  if (Store.state().cfg.engine === 'stepped')
+    return DIFFS[Store.state().level[subject]];
+  const want = Store.targetB(subject, skill);
+  const w = DIFFS.map(d => Math.exp(-Math.abs(Store.bOf(d) - want) / 0.7));
+  const total = w.reduce((a, b) => a + b, 0);
+  let r = Math.random() * total;
+  for (let i = 0; i < DIFFS.length; i++) {
+    r -= w[i];
+    if (r <= 0) return DIFFS[i];
+  }
+  return DIFFS[1];
+}
+
 /** Prefer unseen questions, then questions in the user's weaker skills. */
 function pickOne(subject, difficulty, exclude, filt) {
   const seen = Store.state().seen;
@@ -203,7 +222,6 @@ function pickDueReview(subject, exclude, filt) {
 }
 
 function nextAdaptive() {
-  const lvl = Store.state().level[SES.subject];
   const exclude = new Set(SES.items.map(i => i.q.id));
   // Roughly a third of a practice run is spent back on things you got wrong.
   // Without this a missed question is never served again: the picker prefers
@@ -213,7 +231,7 @@ function nextAdaptive() {
     q = pickDueReview(SES.subject, exclude, SES.filt);
     isReview = !!q;
   }
-  if (!q) q = pickOne(SES.subject, DIFFS[lvl], exclude, SES.filt);
+  if (!q) q = pickOne(SES.subject, pickDifficulty(SES.subject), exclude, SES.filt);
   if (!q) { toast('No more questions match that filter.'); return false; }
   const it = mkItem(q, SES.subject);
   it.isReview = isReview;
@@ -316,9 +334,15 @@ function loadStage() {
   if (m.brk) { showBreak(m); return; }
   let mix = MIX.m1;
   if (m.adapt) {
+    // Route on the ability module 1 implies, not on raw correct: clearing the
+    // hard half of an easier module should still send you up.
     const prev = SES.results.filter(r => r.subject === m.subject);
-    const acc = prev.length ? prev.at(-1).acc : 0.5;
-    m.hard = acc >= 0.65;
+    const last = prev.at(-1);
+    const responses = last ? last.items.map(it => ({
+      b: Store.bOf(it.q.difficulty), a: Store.aOf(it.q.difficulty),
+      c: Store.cOf(it.q.type), correct: !!it.correct
+    })) : [];
+    m.hard = responses.length ? Store.estimateTheta(responses) >= 0 : false;
     mix = m.hard ? MIX.hard : MIX.easy;
   }
   const qs = buildModule(m.subject, m.n, mix);
@@ -681,7 +705,7 @@ function finishModule() {
     const m = SES.modules[SES.stage];
     SES.results.push({
       subject: m.subject, correct, total: SES.items.length, acc,
-      hard: !!m.hard, items: SES.items
+      adaptive: !!m.adapt, hard: !!m.hard, items: SES.items
     });
     SES.stage++;
     if (SES.stage < SES.modules.length) { loadStage(); return; }
@@ -725,11 +749,29 @@ function showBreak(m) {
 }
 
 /* ══════════════════ scoring ══════════════════ */
-function sectionScore(correct, total, hardModule) {
-  const p = total ? correct / total : 0;
-  const hi = hardModule ? 800 : 620;
-  return Math.min(800, Math.max(200,
-    Math.round((200 + (hi - 200) * Math.pow(p, 0.9)) / 10) * 10));
+/** Score a section the way the digital SAT does: from *which* questions
+ *  were answered correctly, not merely how many.
+ *
+ *  Every item carries a difficulty, the responses give a maximum-likelihood
+ *  ability, and that maps onto the 200-800 scale. Two students on 30/44
+ *  therefore do not score the same if one of them cleared the hard items.
+ *  Being routed to the easier second module caps the section, as on test day.
+ *
+ *  The real conversion is per-form and unpublished, so this is a faithful
+ *  model of the method rather than an official table. */
+function sectionScore(results) {
+  const responses = [];
+  for (const r of results) {
+    for (const it of r.items) {
+      responses.push({
+        b: Store.bOf(it.q.difficulty), a: Store.aOf(it.q.difficulty),
+        c: Store.cOf(it.q.type), correct: !!it.correct
+      });
+    }
+  }
+  const easyRoute = results.some(r => r.adaptive && !r.hard);
+  const out = Store.scaleScore(responses, easyRoute);
+  return { score: out.score, theta: out.theta, easyRoute, n: responses.length };
 }
 
 function finishFullTest() {
@@ -737,11 +779,14 @@ function finishFullTest() {
   const ma = SES.results.filter(r => r.subject === 'math');
   const sum = a => a.reduce((x, y) => x + y.correct, 0);
   const tot = a => a.reduce((x, y) => x + y.total, 0);
-  const rwS = sectionScore(sum(rw), tot(rw), rw.some(r => r.hard));
-  const mS = sectionScore(sum(ma), tot(ma), ma.some(r => r.hard));
+  const rwS = sectionScore(rw);
+  const mS = sectionScore(ma);
   const rec = {
     t: Date.now(), rwCorrect: sum(rw), rwTotal: tot(rw),
-    mCorrect: sum(ma), mTotal: tot(ma), rw: rwS, math: mS, score: rwS + mS
+    mCorrect: sum(ma), mTotal: tot(ma),
+    rw: rwS.score, math: mS.score, score: rwS.score + mS.score,
+    rwTheta: +rwS.theta.toFixed(2), mTheta: +mS.theta.toFixed(2),
+    rwEasy: rwS.easyRoute, mEasy: mS.easyRoute
   };
   Store.recordTest(rec);
   const items = SES.results.flatMap(r => r.items);
@@ -761,6 +806,31 @@ function showModuleResults(correct, acc) {
 }
 
 /* ══════════════════ results screen ══════════════════ */
+/** Explain the score, because it is deliberately not raw-correct / total. */
+function scoreNoteHTML(sc) {
+  const routed = [];
+  if (sc.rwEasy != null) routed.push(['Reading and Writing', sc.rwEasy]);
+  if (sc.mEasy != null) routed.push(['Math', sc.mEasy]);
+  let h = '<div class="score-note"><b>How this was scored</b>' +
+    '<p>Like the digital SAT, this is not raw-correct out of total. Every ' +
+    'question carries a difficulty, and the section score comes from the ' +
+    'ability your answers imply, so clearing the hard ones counts for more — ' +
+    'two people on the same raw score typically land 10–20 points apart. ' +
+    'Blind guesses are discounted too: a four-option question lands one time ' +
+    'in four on its own, so answering at random scores near the floor rather ' +
+    'than in the middle.</p>';
+  if (routed.length) {
+    h += '<p>' + routed.map(([name, easy]) =>
+      `<b>${name}:</b> you were routed to the ${easy ? 'easier' : 'harder'} ` +
+      'second module' + (easy ? ', which caps the section at 650 as it does on test day' : '')
+    ).join('<br>') + '.</p>';
+  }
+  h += '<p class="score-caveat">The College Board does not publish its conversion, ' +
+    'and it changes per form, so treat this as a well-modelled estimate rather ' +
+    'than an official score.</p></div>';
+  return h;
+}
+
 function showResults(o) {
   clearInterval(tick);
   const items = o.items || [];
@@ -774,8 +844,7 @@ function showResults(o) {
       '<div class="score-split">' +
       `<div><span class="lbl">Reading &amp; Writing</span><b>${o.score.rw}</b></div>` +
       `<div><span class="lbl">Math</span><b>${o.score.math}</b></div></div></div>` +
-      '<p style="font-size:12.5px;color:#767f90;margin:10px 2px 0">Scaled scores are an ' +
-      'estimate. As on test day, the second module you were routed to caps the range.</p>';
+      scoreNoteHTML(o.score);
   } else if (o.simple) {
     h += '<div class="score-hero"><div><div class="lbl">Score</div>' +
       `<div class="big">${o.simple.correct}<span style="font-size:26px;opacity:.7">/${o.simple.total}</span></div></div>` +
@@ -926,6 +995,44 @@ function refreshHome() {
 }
 
 /* ══════════════════ progress screen ══════════════════ */
+/* ══════════════════ ability ══════════════════ */
+/** Where the adaptive engine currently places you, and what that would be
+ *  worth on the 200-800 scale if a whole section went the same way. */
+function abilityHTML() {
+  const st = Store.state();
+  const rows = ['rw', 'math'].filter(k => (st.ability[k] || {}).n);
+  if (!rows.length) {
+    return '<div class="box full"><h3>🎯 Where you are working</h3>' +
+      '<div class="sub">Your practice level on the difficulty scale</div>' +
+      '<p class="empty">Answer some questions and this fills in.</p></div>';
+  }
+  const stepped = st.cfg.engine === 'stepped';
+  let h = '<div class="box full"><h3>🎯 Where you are working</h3>' +
+    '<div class="sub">' + (stepped
+      ? 'Stepped mode is picking your questions, but the ability estimate is ' +
+        'still tracked underneath.'
+      : 'The difficulty the picker is aiming at, and what that pace would be ' +
+        'worth across a full section.') + '</div><div class="abl-rows">';
+
+  for (const k of rows) {
+    const th = Store.ability(k);
+    const band = DIFFS[Store.levelFromTheta(th)];
+    const sc = Store.thetaToScore(th);
+    const pos = Math.max(0, Math.min(100, (th + 2.5) / 5 * 100));
+    h += '<div class="abl-row"><div class="abl-head">' +
+      `<b>${SUBJ[k]}</b><span class="pill ${{ Easy: 'e', Medium: 'm', Hard: 'h' }[band]}">` +
+      `${band}</span><span class="abl-sc">~${sc}</span></div>` +
+      '<div class="ability-track"><i class="ability-dot" style="left:' + pos.toFixed(1) + '%"></i></div>' +
+      '<div class="ability-ends"><span>Easier</span><span>Harder</span></div>' +
+      `<div class="note">${st.ability[k].n.toLocaleString()} answers · ` +
+      `aiming for ${Math.round((st.cfg.target || .7) * 100)}% right</div></div>`;
+  }
+  h += '</div><p class="score-caveat" style="margin-top:12px">The ~score is what ' +
+    'this ability implies on the 200–800 scale — a rough read from practice, not ' +
+    'a test result. Sit a full test for a proper one.</p></div>';
+  return h;
+}
+
 /* ══════════════════ pacing ══════════════════ */
 const secs = ms => ms == null ? '—' : (ms / 1000).toFixed(0) + 's';
 
@@ -1193,6 +1300,7 @@ function showProgress() {
     '<div class="sub">Sorted by accuracy — the top of this list is where points are hiding</div>' +
     '<div id="cSkills"></div></div>';
 
+  h += abilityHTML();
   h += pacingHTML();
   h += mistakeBankHTML();
 
@@ -1326,7 +1434,22 @@ function showSettings() {
   const s = Store.state();
   modal('<h3>⚙️ Settings</h3>' +
     `<div class="field"><label>Your name</label><input id="setName" value="${esc(s.name)}"></div>` +
-    '<div class="row2">' +
+    '<div class="field"><label>How practice picks the next question</label>' +
+    '<select id="setEngine">' +
+    `<option value="ability"${s.cfg.engine !== 'stepped' ? ' selected' : ''}>` +
+    'Ability estimate — smooth (recommended)</option>' +
+    `<option value="stepped"${s.cfg.engine === 'stepped' ? ' selected' : ''}>` +
+    'Stepped — a set number right moves up</option></select>' +
+    '<div class="note" id="engNote"></div></div>' +
+
+    '<div class="field" id="abilityBox">' +
+    `<label>How hard it should feel — aim to get <b id="tgtLbl">${Math.round((s.cfg.target || .7) * 100)}%</b> right</label>` +
+    `<input type="range" class="rng" id="setTarget" min="50" max="88" step="2" ` +
+    `value="${Math.round((s.cfg.target || .7) * 100)}">` +
+    '<div class="note">Lower is a harder, more stretching mix; higher keeps you ' +
+    'on ground you have already covered.</div></div>' +
+
+    '<div class="row2" id="steppedBox">' +
     `<div class="field"><label>Correct in a row to move up</label>` +
     `<input id="setUp" type="number" min="1" max="10" value="${s.cfg.up}"></div>` +
     `<div class="field"><label>Wrong in a row to ease off</label>` +
@@ -1351,14 +1474,40 @@ function showSettings() {
 
   paintSaveBox();
 
+  // the two engines have different knobs, so only show the relevant ones
+  const syncEngine = () => {
+    const ability = $('#setEngine').value !== 'stepped';
+    $('#abilityBox').hidden = !ability;
+    $('#steppedBox').hidden = ability;
+    $('#engNote').textContent = ability
+      ? 'Every question has a difficulty; your ability sits on the same scale and ' +
+        'moves further for a hard question than an easy one.'
+      : 'The original behaviour: a run of correct answers steps the level up, a ' +
+        'run of wrong ones steps it down.';
+  };
+  $('#setEngine').onchange = syncEngine;
+  $('#setTarget').oninput = e => {
+    $('#tgtLbl').textContent = e.target.value + '%';
+  };
+  syncEngine();
+
   $('#setSave').onclick = () => {
     const st = Store.state();
     st.name = $('#setName').value.trim() || 'Student';
+    st.cfg.engine = $('#setEngine').value;
+    st.cfg.target = (+$('#setTarget').value || 70) / 100;
     st.cfg.up = Math.max(1, +$('#setUp').value || 3);
     st.cfg.down = Math.max(1, +$('#setDown').value || 2);
     st.cfg.goal = Math.max(1, +$('#setGoal').value || 20);
-    st.level.rw = +$('#setLvlRW').value;
-    st.level.math = +$('#setLvlM').value;
+    // Setting the band by hand also moves the ability estimate to the middle
+    // of it, otherwise the next answer would snap the display straight back.
+    for (const [sub, sel] of [['rw', '#setLvlRW'], ['math', '#setLvlM']]) {
+      const want = +$(sel).value;
+      if (want !== st.level[sub]) {
+        st.level[sub] = want;
+        st.ability[sub] = { th: Store.bOf(DIFFS[want]), n: st.ability[sub].n };
+      }
+    }
     Store.save();
     closeModal(); refreshHome(); toast('Settings saved');
   };

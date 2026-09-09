@@ -22,6 +22,7 @@ No install. No server. No account. No data leaves your computer.
 - [Setup](#setup)
 - [How the adaptive engine works](#how-the-adaptive-engine-works)
 - [The four practice modes](#the-four-practice-modes)
+- [How the full test is scored](#how-the-full-test-is-scored)
 - [The review loop](#the-review-loop)
 - [Keeping your progress safe](#keeping-your-progress-safe)
 - [Progress tracking](#progress-tracking)
@@ -40,7 +41,7 @@ No install. No server. No account. No data leaves your computer.
 |---|---|
 | **Adaptive difficulty** | Three right in a row moves you up Easy → Medium → Hard; two wrong eases off. Both thresholds are configurable. |
 | **Real test interface** | Two-pane Reading and Writing layout, Mark for Review, ABC answer eliminator, highlighting, question navigator, hideable timer — modelled on Bluebook. |
-| **Full practice test** | All four modules, 98 questions, the 10-minute break, and a second module whose difficulty is chosen by your first-module score, like the real digital SAT. Ends with an estimated 1600-scale score. |
+| **Full practice test** | All four modules, 98 questions, the 10-minute break, and a second module routed by your first-module performance. Scored the way the real one is - IRT, difficulty-weighted, guessing discounted. |
 | **Math tools** | The Desmos graphing calculator and the official SAT reference sheet, available exactly where the real test gives them to you. |
 | **Brings back your mistakes** | Miss a question and it returns on a spacing ladder — 10 minutes, then 1, 3, 7, 21 days — until you can get it right. |
 | **Pacing** | Median think time per question against real test pace, per skill, so you can see where the clock is going. |
@@ -121,24 +122,34 @@ Double-click **`index.html`**. That's it.
 
 ## How the adaptive engine works
 
-You sit at one of three levels per section, tracked separately for Reading and
-Writing and for Math:
+Every question carries a difficulty on a shared scale, and so does your ability.
+After each answer your estimate moves — further for a hard question than an easy
+one, and further early on than once it has settled.
 
 ```
-        3 correct in a row  →
-Easy ←────────────────────────→ Medium ←────────────────────────→ Hard
-        ←  2 wrong in a row
+   easier  ←────────────────  your ability  ────────────────→  harder
+            Easy  −1.1          Medium  0.0          Hard  +1.1
+                          ▲
+             the picker aims a little below you, so you get
+                  about 70% right and still get stretched
 ```
 
-Both thresholds — and your current level, if you want to jump straight to Hard —
-are editable under **Settings**.
+That target is adjustable under **Settings** — drop it and the mix gets harder,
+raise it and you stay on ground you have covered. Ability is tracked per section
+*and* per skill, with thin skills shrunk toward your section average so one bad
+run on Circles doesn't crater the whole thing.
 
-Within a level the app prefers questions you have never seen, then biases toward
-the skills where your accuracy is lowest, so weak spots come up more often.
+Practice then prefers questions you have never seen, biases toward your weakest
+skills, and reserves about a third of the run for [questions you previously
+missed](#the-review-loop).
 
-On the **full practice test** this is replaced by the real exam's behaviour:
-module 2's difficulty is decided by your module 1 score, and being routed to the
-easier module 2 caps the estimated section score around 620, as it does on test day.
+> **Prefer the old behaviour?** Settings → *Stepped* restores the original
+> engine: a set number right in a row moves the level up, a set number wrong
+> moves it down, with both thresholds editable. The ability estimate keeps
+> updating underneath either way, so switching never loses it.
+
+The **Progress** page shows where you are currently working and what that pace
+would be worth across a full section.
 
 ---
 
@@ -162,6 +173,45 @@ topic tree that shows how many questions each one holds. Set a difficulty, choos
 how many questions, and optionally start a clock. The suggested time is that many
 questions at real test pace (71s each for Reading and Writing, 95s for Math), and
 you can drag it anywhere between half and double that.
+
+---
+
+## How the full test is scored
+
+Not raw-correct over total. The digital SAT is IRT-scored, and so is this.
+
+Each question has a **difficulty** and a **discrimination** (how sharply it
+separates strong from weak), and multiple-choice questions carry a **guessing
+floor** of 1-in-4. Your section score is the ability those 54 or 44 responses
+imply, mapped onto 200-800 and rounded to the nearest 10.
+
+Three things fall out of that, all of which match the real thing:
+
+- **Which questions you got right matters,** not only how many. Two people on
+  the same raw score usually land 10-20 points apart, the one who cleared the
+  hard items higher.
+- **Guessing doesn't pay.** Answering a whole section at random lands near 200
+  rather than in the middle, because a 1-in-4 hit rate is exactly what the model
+  expects from no knowledge at all.
+- **The module you were routed to caps you.** Module 2's difficulty is decided
+  by the ability your module 1 answers imply, and the easier route caps the
+  section at 650 - as on test day.
+
+Some reference points for Math (44 questions):
+
+| Raw score | Estimated |
+|---|---|
+| 44 | 800 |
+| 40 | 670 |
+| 33 | 580 |
+| 22 | 470-480 |
+| ~11 (random) | 200 |
+
+> **This is a model, not the official table.** The College Board does not
+> publish its conversion and it changes with every form. Item difficulties here
+> come from the Easy/Medium/Hard labels in your export, not from real
+> calibration data. Treat the number as a well-grounded estimate - good for
+> tracking whether you are improving, not for predicting your exact score.
 
 ---
 
